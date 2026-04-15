@@ -1,0 +1,10 @@
+{
+  "name": "Studio Exec Fantasy",
+  "short_name": "Studio Exec",
+  "description": "Studio Exec Fantasy League - Season 1 (2026/27)",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#08080d",
+  "theme_color": "#08080d",
+  "icons": []
+}
