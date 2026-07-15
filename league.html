@@ -18,12 +18,12 @@ body.endgame{background:#1a0608;color:#f5e6c8}
 
 /* Apply warm sepia-toned filter to retint all dark surfaces toward red carpet.
    Affects #root only, not fixed-position accents. */
-/* Lighter filter — preserves more color variety while still warming the palette */
+/* Lighter filter - preserves more color variety while still warming the palette */
 body.endgame #root{
   filter: sepia(0.4) hue-rotate(-8deg) saturate(1.5) brightness(1.02);
 }
 
-/* Retint card surfaces — React converts hex inline styles to rgb() in the DOM,
+/* Retint card surfaces - React converts hex inline styles to rgb() in the DOM,
    so we match the rgb values for #111119, #1a1a28, #0e0e16 etc. */
 body.endgame [style*="rgb(17, 17, 25)"],
 body.endgame [style*="background:#111119"],
@@ -51,7 +51,7 @@ body.endgame [style*="rgb(30, 30, 46)"]{
   border-color: rgba(212,168,67,0.5) !important;
 }
 
-/* Layered red carpet background — wine base with deeper crimson glow zones */
+/* Layered red carpet background - wine base with deeper crimson glow zones */
 body.endgame{
   background:
     radial-gradient(ellipse at 15% 20%, rgba(160,19,31,0.18) 0%, transparent 45%),
@@ -62,7 +62,7 @@ body.endgame{
   background-attachment: fixed;
 }
 
-/* ── Red carpet accents — varied highlights across the UI ────────────────── */
+/* ── Red carpet accents - varied highlights across the UI ────────────────── */
 
 /* Rank #1 card gets a red carpet left edge with red glow */
 body.endgame [style*="border-left: 3px solid #d4a843"]{
@@ -70,7 +70,7 @@ body.endgame [style*="border-left: 3px solid #d4a843"]{
   box-shadow: inset 6px 0 16px rgba(200,16,46,0.3), 0 0 20px rgba(160,19,31,0.15) !important;
 }
 
-/* Top accent bar — cinematic gold→red→gold lighting */
+/* Top accent bar - cinematic gold→red→gold lighting */
 body.endgame .endgame-accent-bar{
   background: linear-gradient(90deg, transparent, #d4a843 12%, #c8102e 30%, #fbbf24 50%, #c8102e 70%, #d4a843 88%, transparent) !important;
   height: 4px !important;
@@ -170,7 +170,7 @@ async function loadLeagueContext() {
     if (session?.user?.id) {
       USER_MEMBERSHIP = LEAGUE_MEMBERS.find(m => m.user_id === session.user.id) || null;
     }
-    if (LEAGUE_CONTEXT) document.title = `${LEAGUE_CONTEXT.name} — Studio Exec Fantasy`;
+    if (LEAGUE_CONTEXT) document.title = `${LEAGUE_CONTEXT.name} - Studio Exec Fantasy`;
   } catch(e) {
     console.warn("[league context] failed to load:", e.message);
   }
@@ -178,8 +178,8 @@ async function loadLeagueContext() {
 
 const SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQT4IsjOToQ2VQHupKe7NLLlrD6SxkYALrnOAwvtSKgL-wWr9SPFZ8O3ru7_AhXl9wi5isLXg_Psxjg/pub?output=csv";
 const OSCAR_DATE = new Date(2027, 2, 14);
-const OSCAR_NOMS_DATE = new Date(2027, 0, 23); // Jan 23, 2027 — typical Oscar nominations date
-const ENDGAME_START_DATE = new Date(2027, 0, 1); // Jan 1, 2027 — auto-trigger date
+const OSCAR_NOMS_DATE = new Date(2027, 0, 23); // Jan 23, 2027 - typical Oscar nominations date
+const ENDGAME_START_DATE = new Date(2027, 0, 1); // Jan 1, 2027 - auto-trigger date
 const ENDGAME_FILMS_LEFT_THRESHOLD = 5; // OR trigger when ≤5 films unreleased
 const ELIGIBILITY_START = "March 16, 2026";
 const ELIGIBILITY_END = "March 14, 2027";
@@ -203,7 +203,7 @@ function daysUntil(date){
   return Math.ceil((date-new Date())/864e5);
 }
 
-// Fallback studio names — will be overridden by sheet data if available
+// Fallback studio names - will be overridden by sheet data if available
 const DEFAULT_STUDIOS = { BRANDON: "Continental Studios", RAFA: "Dwayne the Rock's Wig", KAI: "Ginza Films", PATRICK: "Brock Heimer", BB: "No Wot Studios" };
 const DISPLAY = { BRANDON: "Brandon", RAFA: "Rafa", KAI: "Kai", PATRICK: "Patrick", BB: "BB" };
 const BUDGET = 500;
@@ -213,7 +213,7 @@ const REMAINDERS = { BB: { remaining: 18 }, PATRICK: { remaining: 9 }, BRANDON: 
 
 const FALLBACK_FILMS=[{title:"Project Hail Mary",bid:87,bo:256218578,team:"BB",release:"2026-03-20",status:"released"},{title:"Ready or Not 2",bid:10,bo:22049311,team:"BRANDON",release:"2026-03-20",status:"released"},{title:"The Super Mario Galaxy Movie",bid:148,bo:307200780,team:"RAFA",release:"2026-04-01",status:"released"},{title:"Lee Cronin's The Mummy",bid:28,bo:0,team:"BRANDON",release:"2026-04-17",status:"upcoming"},{title:"Lorne",bid:10,bo:0,team:"PATRICK",release:"2026-04-17",status:"upcoming"},{title:"Michael",bid:80,bo:0,team:"BRANDON",release:"2026-04-24",status:"upcoming"},{title:"The Devil Wears Prada 2",bid:47,bo:0,team:"RAFA",release:"2026-05-01",status:"upcoming"},{title:"Palme d'Or Winner",bid:14,bo:0,team:"BRANDON",release:"2026-05-12",status:"upcoming"},{title:"I Love Boosters",bid:10,bo:0,team:"BRANDON",release:"2026-05-22",status:"upcoming"},{title:"The Mandalorian and Grogu",bid:75,bo:0,team:"PATRICK",release:"2026-05-22",status:"upcoming"},{title:"Backrooms",bid:27,bo:0,team:"BB",release:"2026-05-29",status:"upcoming"},{title:"Disclosure Day",bid:43,bo:0,team:"RAFA",release:"2026-06-12",status:"upcoming"},{title:"Scary Movie",bid:20,bo:0,team:"KAI",release:"2026-06-12",status:"upcoming"},{title:"Toy Story 5",bid:120,bo:0,team:"BRANDON",release:"2026-06-19",status:"upcoming"},{title:"Supergirl",bid:55,bo:0,team:"RAFA",release:"2026-06-26",status:"upcoming"},{title:"The Invite",bid:17,bo:0,team:"BRANDON",release:"2026-06-26",status:"upcoming"},{title:"Jackass 5",bid:10,bo:0,team:"BRANDON",release:"2026-06-26",status:"upcoming"},{title:"Minions & Monsters",bid:77,bo:0,team:"KAI",release:"2026-07-01",status:"upcoming"},{title:"Moana",bid:92,bo:0,team:"RAFA",release:"2026-07-10",status:"upcoming"},{title:"The Odyssey",bid:180,bo:0,team:"BB",release:"2026-07-17",status:"upcoming"},{title:"Evil Dead Burn",bid:20,bo:0,team:"BRANDON",release:"2026-07-24",status:"upcoming"},{title:"Spider-Man: Brand New Day",bid:130,bo:0,team:"KAI",release:"2026-07-31",status:"upcoming"},{title:"Super Troopers 3",bid:10,bo:0,team:"PATRICK",release:"2026-08-07",status:"upcoming"},{title:"One Night Only",bid:20,bo:0,team:"BRANDON",release:"2026-08-07",status:"upcoming"},{title:"End Of Oak Street",bid:15,bo:0,team:"BB",release:"2026-08-14",status:"upcoming"},{title:"Fjord",bid:19,bo:0,team:"KAI",release:"2026-08-19",status:"upcoming"},{title:"The Dog Stars",bid:10,bo:0,team:"BB",release:"2026-08-28",status:"upcoming"},{title:"How to Rob a Bank",bid:25,bo:0,team:"BRANDON",release:"2026-09-04",status:"upcoming"},{title:"TIFF - People's Choice Award",bid:19,bo:0,team:"BB",release:"2026-09-08",status:"upcoming"},{title:"Practical Magic 2",bid:13,bo:0,team:"RAFA",release:"2026-09-11",status:"upcoming"},{title:"Sense and Sensibility",bid:10,bo:0,team:"BB",release:"2026-09-11",status:"upcoming"},{title:"Resident Evil",bid:32,bo:0,team:"BRANDON",release:"2026-09-18",status:"upcoming"},{title:"Digger",bid:55,bo:0,team:"BB",release:"2026-10-02",status:"upcoming"},{title:"Verity",bid:10,bo:0,team:"KAI",release:"2026-10-02",status:"upcoming"},{title:"The Social Reckoning",bid:58,bo:0,team:"PATRICK",release:"2026-10-09",status:"upcoming"},{title:"Street Fighter",bid:10,bo:0,team:"BRANDON",release:"2026-10-16",status:"upcoming"},{title:"Clayface",bid:12,bo:0,team:"KAI",release:"2026-10-23",status:"tba"},{title:"Shaun the Sheep: Beast of Mossy Bottom",bid:10,bo:0,team:"BB",release:"2026-10-31",status:"upcoming"},{title:"Cat in the Hat",bid:32,bo:0,team:"RAFA",release:"2026-11-06",status:"upcoming"},{title:"Godzilla Minus Zero",bid:14,bo:0,team:"BB",release:"2026-11-06",status:"upcoming"},{title:"Wild Horse Nine",bid:45,bo:0,team:"BRANDON",release:"2026-11-06",status:"upcoming"},{title:"The Great Beyond",bid:31,bo:0,team:"RAFA",release:"2026-11-13",status:"upcoming"},{title:"Hunger Games: Sunrise on the Reaping",bid:60,bo:0,team:"PATRICK",release:"2026-11-20",status:"upcoming"},{title:"Hexed",bid:38,bo:0,team:"BRANDON",release:"2026-11-25",status:"upcoming"},{title:"Focker in Law",bid:11,bo:0,team:"BRANDON",release:"2026-11-25",status:"upcoming"},{title:"Madden",bid:10,bo:0,team:"BB",release:"2026-11-26",status:"upcoming"},{title:"Narnia: The Magician's Nephew",bid:18,bo:0,team:"KAI",release:"2026-11-26",status:"upcoming"},{title:"Avengers: Doomsday",bid:182,bo:0,team:"KAI",release:"2026-12-18",status:"upcoming"},{title:"Dune: Part Three",bid:169,bo:0,team:"PATRICK",release:"2026-12-18",status:"upcoming"},{title:"Angry Birds 3",bid:26,bo:0,team:"PATRICK",release:"2026-12-23",status:"upcoming"},{title:"Werwulf",bid:25,bo:0,team:"BB",release:"2026-12-25",status:"upcoming"},{title:"Jumanji: Open World",bid:60,bo:0,team:"PATRICK",release:"2026-12-25",status:"upcoming"},{title:"Children of Blood and Bone",bid:10,bo:0,team:"BRANDON",release:"2027-01-15",status:"upcoming"},{title:"Beekeeper 2",bid:10,bo:0,team:"RAFA",release:"2027-01-15",status:"upcoming"},{title:"Ice Age - Boiling Point",bid:23,bo:0,team:"PATRICK",release:"2027-02-05",status:"upcoming"},{title:"Gatto",bid:10,bo:0,team:"RAFA",release:"2027-03-05",status:"upcoming"},{title:"All of a Sudden",bid:10,bo:0,team:"KAI",release:null,status:"tba"},{title:"Being Heumann",bid:10,bo:0,team:"KAI",release:null,status:"tba"},{title:"Jack of Spades",bid:19,bo:0,team:"RAFA",release:null,status:"tba"},{title:"Once Upon A Time In Harlem",bid:12,bo:0,team:"KAI",release:null,status:"tba"},{title:"The Adventures of Cliff Booth",bid:10,bo:0,team:"BB",release:null,status:"tba"},{title:"The Entertainment System Is Down",bid:10,bo:0,team:"BB",release:null,status:"tba"}];
 
-// Fallback weekly data — manually updated each week from the spreadsheet.
+// Fallback weekly data - manually updated each week from the spreadsheet.
 // When a weekly tab URL is provided below, live data overrides these.
 const FALLBACK_WEEKLY_BO=[
   {week:"Mar 16",BRANDON:0,       KAI:0,RAFA:0,          PATRICK:9000000,  BB:8000000},
@@ -234,7 +234,7 @@ const FALLBACK_WEEKLY_ROI=[
   {week:"Apr 27",BRANDON:121,   KAI:0,RAFA:278.0,  PATRICK:49.62, BB:306.0},
 ];
 
-// ── Live weekly tab URLs — fetched fresh on every page load ───────────────────
+// ── Live weekly tab URLs - fetched fresh on every page load ───────────────────
 // These roint to the published CSV versions of the WEEKLY BO SNAPSHOT and
 // WEEKLY ROI SNAPSHOT tabs. When a new row is added each week the graphs
 // update automatically the next time anyone loads the page.
@@ -252,14 +252,14 @@ function parseWeeklyTab(text){
   const rows=parseCSV(text);
   if(!rows||rows.length<2) return null;
 
-  // Flexible name matching — handles "Brandon", "BRANDON", "bb", "BB" etc.
+  // Flexible name matching - handles "Brandon", "BRANDON", "bb", "BB" etc.
   const nameMap={
     brandon:"BRANDON",rafa:"RAFA",kai:"KAI",patrick:"PATRICK",bb:"BB",
     "b.b":"BB","b.bennett":"BRANDON","brendan":"BRANDON",
   };
 
   const hRow=rows[0].map(c=>(c||"").trim().toLowerCase());
-  // Find the week column — first column labelled "week", "date", or "w/e"
+  // Find the week column - first column labelled "week", "date", or "w/e"
   const weekCol=hRow.findIndex(c=>c==="week"||c==="date"||c==="w/e"||c.startsWith("week"));
   if(weekCol<0) return null;
 
@@ -290,7 +290,7 @@ function parseWeeklyTab(text){
   return result.length>0?result:null;
 }
 
-// Weekly sheet URL — kept for parseWeeklyData (main slate sheet scan)
+// Weekly sheet URL - kept for parseWeeklyData (main slate sheet scan)
 const WEEKLY_SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQT4IsjOToQ2VQHupKe7NLLlrD6SxkYALrnOAwvtSKgL-wWr9SPFZ8O3ru7_AhXl9wi5isLXg_Psxjg/pub?gid=0&single=true&output=csv";
 
 // Parse weekly BO + ROI from the sheet
@@ -335,7 +335,7 @@ function parseWeeklyData(rows){
     else boCol[team]=j;
   });
 
-  // If we only found BO columns (no ROI), that's fine — ROI will fall back
+  // If we only found BO columns (no ROI), that's fine - ROI will fall back
   const hasBO=Object.keys(boCol).length>=2;
   if(!hasBO) return null;
 
@@ -363,7 +363,7 @@ function parseWeeklyData(rows){
 }
 
 // Weekly data comes entirely from fallback constants or the sheet.
-// We do NOT compute it from live film data — the sheet is the source of truth.
+// We do NOT compute it from live film data - the sheet is the source of truth.
 // To add a new week: update FALLBACK_WEEKLY_BO and FALLBACK_WEEKLY_ROI below.
 
 function fmt(n){if(Math.abs(n)>=1e9)return"$"+(n/1e9).toFixed(2)+"B";if(Math.abs(n)>=1e6)return"$"+(n/1e6).toFixed(1)+"M";if(Math.abs(n)>=1e3)return"$"+(n/1e3).toFixed(0)+"K";return"$"+n.toLocaleString()}
@@ -387,7 +387,7 @@ function processCSV(rows){
     if(titleCol<0 && (h.includes("FILM")||h.includes("TITLE")||h.includes("MOVIE"))) titleCol=j;
     if(bidCol<0   && (h.includes("BID")||h.includes("PURCHASE")||h.includes("PRICE")||h.includes("AMOUNT"))) bidCol=j;
     if(openCol<0  && (h.includes("OPENING")||h.includes("OPEN WEEKEND"))) openCol=j;
-    // BO must NOT match the opening column — require "DOMESTIC"/"BOX OFFICE"/"GROSS" and not "OPENING"
+    // BO must NOT match the opening column - require "DOMESTIC"/"BOX OFFICE"/"GROSS" and not "OPENING"
     if(boCol<0    && !h.includes("OPENING") && (h.includes("DOMESTIC")||h.includes("BOX OFFICE")||(h==="BO")||(h==="DOM BO")||h.includes("GROSS"))) boCol=j;
     if(teamCol<0  && (h.includes("EXEC")||h.includes("TEAM")||h.includes("OWNER")||(h==="NAME"))) teamCol=j;
     if(releaseCol<0&&(h.includes("RELEASE")||h.includes("DATE"))) releaseCol=j;
@@ -409,10 +409,10 @@ function processCSV(rows){
   // If header detection failed, warn loudly and use known positional fallback
   const fallback=(titleCol<0||bidCol<0||boCol<0||teamCol<0);
   if(fallback){
-    console.warn("[processCSV] Header detection failed — falling back to fixed column positions. Sheet headers found:", hRow.slice(0,9).join(" | "));
+    console.warn("[processCSV] Header detection failed - falling back to fixed column positions. Sheet headers found:", hRow.slice(0,9).join(" | "));
     titleCol=0; bidCol=2; openCol=3; boCol=4; teamCol=5; releaseCol=6; lockedCol=8;
   }
-  // lockedCol gets its own fallback even when other headers are found —
+  // lockedCol gets its own fallback even when other headers are found -
   // Column I (index 8) may have no header row entry if the script added it silently
   if(lockedCol<0) lockedCol=8;
 
@@ -443,7 +443,7 @@ function processCSV(rows){
     let release=null;
     if(releaseRaw&&releaseRaw!=="TBA"&&releaseRaw!=="No release date"&&releaseRaw!==""){
       if(/^\d{4}-\d{2}-\d{2}/.test(releaseRaw)){
-        // Already ISO: 2026-05-22 — use as-is, no Date parsing needed (avoids UTC shift)
+        // Already ISO: 2026-05-22 - use as-is, no Date parsing needed (avoids UTC shift)
         release=releaseRaw.slice(0,10);
       } else {
         // Parse other formats: 5/22/2026, May 22 2026, etc.
@@ -462,7 +462,7 @@ function processCSV(rows){
       if(releaseDate&&releaseDate<=today){status="released";}
       else{status="upcoming";}
     }
-    // Opening weekend — "Film not released" / blank / non-numeric → 0
+    // Opening weekend - "Film not released" / blank / non-numeric → 0
     const openRaw=openCol>=0?(r[openCol]||"").trim():"";
     const openNum=parseNum(openRaw);
     const opening=openNum>0?openNum:0;
@@ -488,8 +488,8 @@ function processCSV(rows){
 // ─── TOOLTIP ──────────────────
 function Tooltip({x,y,children,visible}){if(!visible)return null;return(<div style={{position:"fixed",left:Math.min(x,typeof window!=="undefined"?window.innerWidth-220:500),top:Math.max(y-10,10),transform:"translateY(-100%)",background:"#1e1e2e",border:"1px solid #3a3a50",borderRadius:8,padding:"8px 12px",fontSize:12,color:"#e8e8f0",rointerEvents:"none",zIndex:9999,boxShadow:"0 8px 30px rgba(0,0,0,0.6)",maxWidth:260}}>{children}</div>)}
 
-// ─── INTERACTIVE LINE CHART — persistent data panel ──────────────────
-// ─── USE IN VIEW — triggers when element scrolls into viewport ──────────────────
+// ─── INTERACTIVE LINE CHART - persistent data panel ──────────────────
+// ─── USE IN VIEW - triggers when element scrolls into viewport ──────────────────
 function useInView(threshold=0.25){
   const ref=useRef(null);
   const[inView,setInView]=useState(false);
@@ -683,7 +683,7 @@ function DailyBOChart({dailyBO,anim}){
   const tooltipEl=(
     <div style={{background:"#1a1a28",borderRadius:5,padding:"6px 10px",marginBottom:8,fontFamily:"monospace",fontSize:10}}>
       <div style={{display:"flex",marginBottom:2}}>{tooltipCols.map(c=><div key={c.label} style={{width:c.width,flexShrink:0,fontSize:8,color:"#4a4a5e",textTransform:"uppercase",letterSpacing:"0.08em"}}>{c.label}</div>)}</div>
-      <div style={{display:"flex"}}>{tooltipCols.map(c=><div key={c.label} style={{width:c.width,flexShrink:0,color:c.color,fontWeight:c.label==="Daily"?700:400,whiteSpace:"nowrap",overflow:"hidden"}}>{hovered?c.value||"—":"—"}</div>)}</div>
+      <div style={{display:"flex"}}>{tooltipCols.map(c=><div key={c.label} style={{width:c.width,flexShrink:0,color:c.color,fontWeight:c.label==="Daily"?700:400,whiteSpace:"nowrap",overflow:"hidden"}}>{hovered?c.value||"-":"-"}</div>)}</div>
     </div>
   );
 
@@ -884,7 +884,7 @@ function PurchasePriceTab({films,data,studioNames}){
           const legsColor=legs===null?"#3a3a4e":legs>=3?"#34d399":legs>=2?"#86efac":legs>=1.5?"#fbbf24":"#f87171";
           const roi=f.bo>0?((f.bo/(f.bid*1e6))*100):null;
           const roiColor=roi===null?"#3a3a4e":roi>=200?"#34d399":roi>=100?"#86efac":roi>=50?"#fbbf24":"#f87171";
-          const relLabel=f.release?(()=>{const p=f.release.split("-");return["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][parseInt(p[1])-1]+" "+parseInt(p[2]);})():"—";
+          const relLabel=f.release?(()=>{const p=f.release.split("-");return["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][parseInt(p[1])-1]+" "+parseInt(p[2]);})():"-";
           return(
             <div key={i} style={{display:"grid",gridTemplateColumns:"1fr 42px 22px 52px 65px 65px 42px",gap:0,padding:"9px 14px",borderBottom:"1px solid #0e0e16",alignItems:"center",opacity:f.locked?0.65:f.voided?0.7:1,background:f.voided?"rgba(239,68,68,0.04)":isReleaseDay(f.release)?"rgba(212,168,67,0.05)":i%2===0?"transparent":"#0a0a11"}}>
               {/* Title */}
@@ -919,11 +919,11 @@ function PurchasePriceTab({films,data,studioNames}){
               {/* Release date */}
               <div style={{fontFamily:"monospace",fontSize:10,color:isReleaseDay(f.release)?"#d4a843":"#6a6a7e",textAlign:"right"}}>{relLabel}</div>
               {/* Dom BO */}
-              <div style={{fontFamily:"monospace",fontSize:11,color:f.bo>0?"#e8e8f0":"#3a3a4e",textAlign:"right"}}>{f.bo>0?fmt(f.bo):"—"}</div>
+              <div style={{fontFamily:"monospace",fontSize:11,color:f.bo>0?"#e8e8f0":"#3a3a4e",textAlign:"right"}}>{f.bo>0?fmt(f.bo):"-"}</div>
               {/* ROI % */}
-              <div style={{fontFamily:"monospace",fontSize:11,fontWeight:700,color:f.voided?"#ef4444":roiColor,textAlign:"right"}}>{f.voided?"0%":roi!==null?roi.toFixed(0)+"%":"—"}</div>
+              <div style={{fontFamily:"monospace",fontSize:11,fontWeight:700,color:f.voided?"#ef4444":roiColor,textAlign:"right"}}>{f.voided?"0%":roi!==null?roi.toFixed(0)+"%":"-"}</div>
               {/* Legs */}
-              <div style={{fontFamily:"monospace",fontSize:12,fontWeight:700,color:legsColor,textAlign:"right"}}>{legs!==null?legs.toFixed(1)+"x":"—"}</div>
+              <div style={{fontFamily:"monospace",fontSize:12,fontWeight:700,color:legsColor,textAlign:"right"}}>{legs!==null?legs.toFixed(1)+"x":"-"}</div>
             </div>
           );
         })}
@@ -933,7 +933,7 @@ function PurchasePriceTab({films,data,studioNames}){
   );
 }
 
-// ── ENDGAME COUNTDOWN BANNER — shows days until Oscar noms and Oscar Sunday ────
+// ── ENDGAME COUNTDOWN BANNER - shows days until Oscar noms and Oscar Sunday ────
 function EndgameCountdownBanner({theme}){
   const daysToNoms=daysUntil(OSCAR_NOMS_DATE);
   const daysToOscars=daysUntil(OSCAR_DATE);
@@ -981,7 +981,7 @@ function App(){
       if(USER_MEMBERSHIP) setMembership(USER_MEMBERSHIP);
       if(LEAGUE_MEMBERS.length) setLeagueMembers(LEAGUE_MEMBERS);
 
-      // ── 1. Main slate — from Supabase picks table ────────────────────────
+      // ── 1. Main slate - from Supabase picks table ────────────────────────
       let slateLoaded=false;
       try{
         const rows = await supabaseFetch("picks", `league_id=eq.${LEAGUE_ID}&order=release_date.asc.nullslast`);
@@ -1026,14 +1026,14 @@ function App(){
         }
       }
       if(!slateLoaded) setLiveStatus("fallback");
-      // Detect empty non-legacy league — show draft entry UI
+      // Detect empty non-legacy league - show draft entry UI
       if(!IS_LEGACY && slateLoaded===false) setIsDraftEmpty(true);
       // Also detect if Supabase returned zero picks for a new league
       if(!IS_LEGACY && slateLoaded===true){
-        // Will be set after films state updates — handled in useEffect below
+        // Will be set after films state updates - handled in useEffect below
       }
 
-      // ── 2. Weekly BO snapshots — from Supabase ──────────────────────────
+      // ── 2. Weekly BO snapshots - from Supabase ──────────────────────────
       try{
         const rows = await supabaseFetch("weekly_bo_snapshots", `league_id=eq.${LEAGUE_ID}&order=snapshot_date.asc`);
         if(rows.length>0){
@@ -1047,7 +1047,7 @@ function App(){
         }
       }catch(e){ console.warn("[supabase] weekly_bo error:", e.message); }
 
-      // ── 3. Weekly ROI snapshots — from Supabase ──────────────────────────
+      // ── 3. Weekly ROI snapshots - from Supabase ──────────────────────────
       try{
         const rows = await supabaseFetch("weekly_roi_snapshots", `league_id=eq.${LEAGUE_ID}&order=snapshot_date.asc`);
         if(rows.length>0){
@@ -1061,7 +1061,7 @@ function App(){
         }
       }catch(e){ console.warn("[supabase] weekly_roi error:", e.message); }
 
-      // ── 4. Daily BO — from Supabase ──────────────────────────────────────
+      // ── 4. Daily BO - from Supabase ──────────────────────────────────────
       try{
         const rows = await supabaseFetch("daily_bo", `league_id=eq.${LEAGUE_ID}&order=bo_date.asc`);
         if(rows.length>0){
@@ -1107,7 +1107,7 @@ function App(){
       const voidedFilms=e.films.filter(f=>f.voided);
       let roiBO=releasedFilms.reduce((s,f)=>s+f.bo,0);
       let roiSpend=releasedFilms.reduce((s,f)=>s+f.bid,0);
-      // Add voided bids to denominator only — they earned nothing
+      // Add voided bids to denominator only - they earned nothing
       roiSpend+=voidedFilms.reduce((s,f)=>s+f.bid,0);
       // Add remainder to both (matches sheet behavior)
       const rem=REMAINDERS[e.name];
@@ -1182,7 +1182,7 @@ function App(){
     inputBg:"#111119",
   };
 
-  // Dev toggle removed — endgame triggers automatically on Jan 1, 2027 or when ≤5 films unreleased
+  // Dev toggle removed - endgame triggers automatically on Jan 1, 2027 or when ≤5 films unreleased
 
   return(
     <div style={{background:theme.bg,minHeight:"100vh",color:theme.text,fontFamily:"'Helvetica Neue',-apple-system,sans-serif",transition:"background 0.5s ease"}}>
@@ -1300,11 +1300,11 @@ function parseReleaseDate(str){
   const s=str.split('T')[0];
   const parts=s.split('-');
   if(parts.length!==3) return null;
-  // noon local time — safe from any timezone's UTC offset
+  // noon local time - safe from any timezone's UTC offset
   return new Date(parseInt(parts[0]),parseInt(parts[1])-1,parseInt(parts[2]),12,0,0);
 }
 
-// ── Reusable countdown badge — shows "Today", "Tomorrow", "In Xd" when <7 days away ──
+// ── Reusable countdown badge - shows "Today", "Tomorrow", "In Xd" when <7 days away ──
 function CountdownBadge({release,status}){
   if(!release||status==="released"||status==="tba") return null;
   const releaseD=parseReleaseDate(release);
@@ -1422,7 +1422,7 @@ function Sparkler({width=120,height=40,intervalMs=2800,particleCount=18}){
   );
 }
 
-// ── Inline release day badge — wraps content, shows sparkler canvas if today ──
+// ── Inline release day badge - wraps content, shows sparkler canvas if today ──
 function ReleaseDayBadge({releaseDate,children,style={}}){
   if(!isReleaseDay(releaseDate)) return <span style={style}>{children}</span>;
   return(
@@ -1439,7 +1439,7 @@ function ReleaseDayBadge({releaseDate,children,style={}}){
   );
 }
 
-// ── H2H Weekend Banner — shows when 2+ films release same day ────────────────
+// ── H2H Weekend Banner - shows when 2+ films release same day ────────────────
 function H2HBanner({films}){
   const[ready,setReady]=useState(false);
   useEffect(()=>{const t=setTimeout(()=>setReady(true),900);return()=>clearTimeout(t);},[]);
@@ -1464,7 +1464,7 @@ function H2HBanner({films}){
   );
 }
 function TodayReleasePills({films}){
-  // Brief delay before showing — prevents flash on cold load before sheet data arrives
+  // Brief delay before showing - prevents flash on cold load before sheet data arrives
   const[ready,setReady]=useState(false);
   useEffect(()=>{const t=setTimeout(()=>setReady(true),800);return()=>clearTimeout(t);},[]);
   if(!ready) return null;
@@ -1605,7 +1605,7 @@ function TickerNumber({value, duration=1800, formatter=v=>v}){
     <span style={{display:'inline-flex',alignItems:'baseline',letterSpacing:'inherit'}}>
       {chars.map((ch,i)=>{
         if(/[0-9]/.test(ch)){
-          // Key from the right — rightmost digit is always key "r0", next is "r1" etc.
+          // Key from the right - rightmost digit is always key "r0", next is "r1" etc.
           const rightKey=`r${total-1-i}`;
           return <SlotDigit key={rightKey} digit={ch} delay={(total-1-i)*18}/>;
         }
@@ -1621,7 +1621,7 @@ const RANK_KEY_STABLE='sef_ranks_stable';
 const RANK_KEY_PREV='sef_ranks_prev';
 const RANK_WINDOW_MS=24*60*60*1000; // 24 hours
 
-// Pure read — computes changes from localStorage, no side effects
+// Pure read - computes changes from localStorage, no side effects
 function getRankChanges(ranked){
   const current={};
   ranked.forEach(e=>{current[e.name]=e.rank;});
@@ -1648,14 +1648,14 @@ function getRankChanges(ranked){
   return changes;
 }
 
-// Write only — commits current ranks to localStorage (call once per session after live data)
+// Write only - commits current ranks to localStorage (call once per session after live data)
 function commitRankStorage(ranked){
   const current={};
   ranked.forEach(e=>{current[e.name]=e.rank;});
   let stable=null;
   try{const s=localStorage.getItem(RANK_KEY_STABLE);if(s)stable=JSON.parse(s);}catch(e){}
   if(!stable){
-    // First ever load — initialize with old timestamp so no animation on first visit
+    // First ever load - initialize with old timestamp so no animation on first visit
     try{localStorage.setItem(RANK_KEY_STABLE,JSON.stringify({ranks:current,timestamp:Date.now()-RANK_WINDOW_MS-1}));}catch(e){}
     console.log("[ranks] initialized stable storage");
     return;
@@ -1667,7 +1667,7 @@ function commitRankStorage(ranked){
       localStorage.setItem(RANK_KEY_PREV,JSON.stringify({ranks:stableRanks}));
       localStorage.setItem(RANK_KEY_STABLE,JSON.stringify({ranks:current,timestamp:Date.now()}));
     }catch(e){}
-    console.log("[ranks] committed new stable — ranks changed:",JSON.stringify(stableRanks),"→",JSON.stringify(current));
+    console.log("[ranks] committed new stable - ranks changed:",JSON.stringify(stableRanks),"→",JSON.stringify(current));
   }
 }
 function StandingsTab({data,studioNames,expandedExecs,setExpandedExecs,liveStatus,myTeam}){
@@ -1705,7 +1705,7 @@ function SlateDrawer({exec,studioNames}){
       {films.map((f,i)=>{
         const roi=f.bo>0?((f.bo/(f.bid*1e6))*100).toFixed(0):null;
         const rd=f.release?parseReleaseDate(f.release):null;
-        const rs=rd?`${rd.getMonth()+1}/${rd.getDate()}`:"—";
+        const rs=rd?`${rd.getMonth()+1}/${rd.getDate()}`:"-";
         return(
           <div key={i} style={{display:"grid",gridTemplateColumns:"1fr 50px 50px 80px",gap:4,padding:"7px 14px",fontSize:12,alignItems:"center",borderBottom:"1px solid #0e0e16",background:f.voided?"rgba(239,68,68,0.04)":isReleaseDay(f.release)?"rgba(212,168,67,0.04)":"transparent",opacity:f.locked?0.65:f.voided?0.75:1}}>
             <div style={{minWidth:0}}>
@@ -1733,11 +1733,11 @@ function SlateDrawer({exec,studioNames}){
             </div>
             <div style={{fontFamily:"monospace",fontSize:11,color:"#6a6a7e",textAlign:"right"}}>${f.bid}M</div>
             <div style={{fontFamily:"monospace",fontSize:10,color:"#4a4a5e",textAlign:"center"}}>{rs}</div>
-            <div style={{fontFamily:"monospace",fontSize:11,color:f.bo>0?"#34d399":"#3a3a4e",textAlign:"right"}}>{f.bo>0?fmt(f.bo):"—"}</div>
+            <div style={{fontFamily:"monospace",fontSize:11,color:f.bo>0?"#34d399":"#3a3a4e",textAlign:"right"}}>{f.bo>0?fmt(f.bo):"-"}</div>
           </div>
         );
       })}
-      {rem&&rem.remaining>0&&(<div style={{display:"grid",gridTemplateColumns:"1fr 50px 50px 80px",gap:4,padding:"7px 14px",fontSize:12,borderTop:"1px solid #1a1a28"}}><div style={{color:"#6a6a7e",fontStyle:"italic"}}>Unspent Budget</div><div style={{fontFamily:"monospace",fontSize:11,color:"#6a6a7e",textAlign:"right"}}>${rem.remaining}M</div><div/><div style={{fontFamily:"monospace",fontSize:11,color:"#3a3a4e",textAlign:"right"}}>—</div></div>)}
+      {rem&&rem.remaining>0&&(<div style={{display:"grid",gridTemplateColumns:"1fr 50px 50px 80px",gap:4,padding:"7px 14px",fontSize:12,borderTop:"1px solid #1a1a28"}}><div style={{color:"#6a6a7e",fontStyle:"italic"}}>Unspent Budget</div><div style={{fontFamily:"monospace",fontSize:11,color:"#6a6a7e",textAlign:"right"}}>${rem.remaining}M</div><div/><div style={{fontFamily:"monospace",fontSize:11,color:"#3a3a4e",textAlign:"right"}}>-</div></div>)}
     </div>
   );
 }
@@ -2028,7 +2028,7 @@ function Slates({data,studioNames,expandedExecs,setExpandedExecs}){
           {[["bid","Price"],["release","Date"]].map(([k,l])=>(<button key={k} onClick={()=>setSortMode(s=>({...s,[exec.name]:k}))} style={{fontSize:10,padding:"3px 8px",borderRadius:4,border:`1px solid ${mode===k?"#d4a843":"#2a2a3a"}`,background:mode===k?"#d4a84320":"transparent",color:mode===k?"#d4a843":"#6a6a7e",cursor:"rointer",fontWeight:600}}>{l}</button>))}
         </div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 50px 50px 80px",gap:4,padding:"6px 14px",fontSize:9,color:"#6a6a7e",textTransform:"uppercase",letterSpacing:"0.08em",borderBottom:"1px solid #1a1a28"}}><div>Film</div><div style={{textAlign:"right"}}>Bid</div><div style={{textAlign:"center"}}>Date</div><div style={{textAlign:"right"}}>Dom. BO</div></div>
-        {films.map((f,i)=>{const roi=f.bo>0?((f.bo/(f.bid*1e6))*100).toFixed(0):null;const rd=f.release?new Date(f.release):null;const rs=rd?`${rd.getMonth()+1}/${rd.getDate()}`:"—";return(
+        {films.map((f,i)=>{const roi=f.bo>0?((f.bo/(f.bid*1e6))*100).toFixed(0):null;const rd=f.release?new Date(f.release):null;const rs=rd?`${rd.getMonth()+1}/${rd.getDate()}`:"-";return(
           <div key={i} style={{display:"grid",gridTemplateColumns:"1fr 50px 50px 80px",gap:4,padding:"7px 14px",fontSize:13,alignItems:"center",borderBottom:"1px solid #14141e"}}>
             <div><span style={{fontWeight:600}}>{f.title}</span>
               {f.status==="released"&&<span style={{fontSize:8,background:"rgba(52,211,153,0.12)",color:"#34d399",padding:"1px 5px",borderRadius:3,marginLeft:5}}>✓</span>}
@@ -2038,9 +2038,9 @@ function Slates({data,studioNames,expandedExecs,setExpandedExecs}){
             </div>
             <div style={{fontFamily:"monospace",fontSize:11,color:"#6a6a7e",textAlign:"right"}}>${f.bid}M</div>
             <div style={{fontFamily:"monospace",fontSize:10,color:"#4a4a5e",textAlign:"center"}}>{rs}</div>
-            <div style={{fontFamily:"monospace",fontSize:11,color:f.bo>0?"#34d399":"#3a3a4e",textAlign:"right"}}>{f.bo>0?fmt(f.bo):"—"}</div>
+            <div style={{fontFamily:"monospace",fontSize:11,color:f.bo>0?"#34d399":"#3a3a4e",textAlign:"right"}}>{f.bo>0?fmt(f.bo):"-"}</div>
           </div>)})}
-        {rem&&rem.remaining>0&&(<div style={{display:"grid",gridTemplateColumns:"1fr 50px 50px 80px",gap:4,padding:"7px 14px",fontSize:13,borderTop:"1px solid #222233"}}><div style={{color:"#6a6a7e",fontStyle:"italic"}}>Unspent Budget</div><div style={{fontFamily:"monospace",fontSize:11,color:"#6a6a7e",textAlign:"right"}}>${rem.remaining}M</div><div/><div style={{fontFamily:"monospace",fontSize:11,color:"#3a3a4e",textAlign:"right"}}>—</div></div>)}
+        {rem&&rem.remaining>0&&(<div style={{display:"grid",gridTemplateColumns:"1fr 50px 50px 80px",gap:4,padding:"7px 14px",fontSize:13,borderTop:"1px solid #222233"}}><div style={{color:"#6a6a7e",fontStyle:"italic"}}>Unspent Budget</div><div style={{fontFamily:"monospace",fontSize:11,color:"#6a6a7e",textAlign:"right"}}>${rem.remaining}M</div><div/><div style={{fontFamily:"monospace",fontSize:11,color:"#3a3a4e",textAlign:"right"}}>-</div></div>)}
       </div>)}
     </div>)})}</div>);
 }
@@ -2075,7 +2075,7 @@ function CalendarView({films}){
                 {f.bo>0&&<span style={{fontFamily:"monospace",fontSize:11,color:"#34d399",flexShrink:0}}>{fmt(f.bo)}</span>}
               </div>)})}
           </div>)})}
-        {tbas.length>0&&(<div><div style={{fontWeight:800,fontSize:13,color:"#4a4a5e",marginBottom:6}}>TBA</div>{tbas.map((f,i)=>(<div key={i} style={{display:"flex",alignItems:"center",gap:6,padding:"4px 4px",fontSize:13,opacity:0.4,maxWidth:600,margin:"0 auto"}}><span style={{minWidth:20,color:"#4a4a5e",fontFamily:"monospace"}}>—</span><div style={{width:7,height:7,borderRadius:"50%",background:EXEC_COLORS[f.team],flexShrink:0}}/><span style={{flex:1}}>{f.title}</span><span style={{fontSize:10,color:EXEC_COLORS[f.team],fontFamily:"monospace"}}>{DISPLAY[f.team]}</span></div>))}</div>)}
+        {tbas.length>0&&(<div><div style={{fontWeight:800,fontSize:13,color:"#4a4a5e",marginBottom:6}}>TBA</div>{tbas.map((f,i)=>(<div key={i} style={{display:"flex",alignItems:"center",gap:6,padding:"4px 4px",fontSize:13,opacity:0.4,maxWidth:600,margin:"0 auto"}}><span style={{minWidth:20,color:"#4a4a5e",fontFamily:"monospace"}}>-</span><div style={{width:7,height:7,borderRadius:"50%",background:EXEC_COLORS[f.team],flexShrink:0}}/><span style={{flex:1}}>{f.title}</span><span style={{fontSize:10,color:EXEC_COLORS[f.team],fontFamily:"monospace"}}>{DISPLAY[f.team]}</span></div>))}</div>)}
       </div>
     ):<CalendarGrid films={films} months={months} h2hDates={h2hDates}/>}
   </div>);
@@ -2340,7 +2340,7 @@ function BiggestMisses({films}){
   );
 }
 
-// ─── HEATMAP GRID — scroll-triggered cell pop-in ──────────────────
+// ─── HEATMAP GRID - scroll-triggered cell pop-in ──────────────────
 function HeatmapGrid({heatmap,monthOrder,heatLabels,teams}){
   const[ref,inView]=useInView(0.15);
   return(
@@ -2378,7 +2378,7 @@ function TrendsTab({films,data,studioNames,weeklyBO,weeklyROI,dailyBO}){
   const releasedFilms=films.filter(f=>f.bo>0).map(f=>({...f,roi:((f.bo/(f.bid*1e6))-1)*100}));
   const topPerformers=[...releasedFilms].sort((a,b)=>b.roi-a.roi).slice(0,3);
   const biggestBombs=[...releasedFilms].sort((a,b)=>a.roi-b.roi).slice(0,3);
-  // Best legs — films with the highest total ÷ opening weekend multiplier
+  // Best legs - films with the highest total ÷ opening weekend multiplier
   const leggyFilms=films.filter(f=>f.opening>0&&f.bo>0).map(f=>({...f,legs:f.bo/f.opening}));
   const bestLegs=[...leggyFilms].sort((a,b)=>b.legs-a.legs).slice(0,3);
 
@@ -2579,7 +2579,7 @@ function SpentVsEarnedChart({data}){
               <div style={{background:"#1a1a28",borderRadius:6,padding:"8px 12px",marginTop:4,fontSize:11,display:"flex",gap:16,flexWrap:"wrap",alignItems:"center"}}>
                 <span style={{fontWeight:700,color:"#e8e8f0"}}>{hoverBar.film.title}</span>
                 <span style={{color:color,fontFamily:"monospace"}}>Spent: ${hoverBar.film.bid}M</span>
-                <span style={{color:hoverBar.film.bo>0?"#34d399":"#4a4a5e",fontFamily:"monospace"}}>Earned: {hoverBar.film.bo>0?fmt(hoverBar.film.bo):"—"}</span>
+                <span style={{color:hoverBar.film.bo>0?"#34d399":"#4a4a5e",fontFamily:"monospace"}}>Earned: {hoverBar.film.bo>0?fmt(hoverBar.film.bo):"-"}</span>
                 {hoverBar.film.bo>0&&<span style={{fontFamily:"monospace",color:hoverBar.film.bo>(hoverBar.film.bid*1e6)?"#34d399":"#f87171"}}>{((hoverBar.film.bo/(hoverBar.film.bid*1e6))*100).toFixed(0)}% ROI</span>}
                 {hoverBar.film.bo===0&&<span style={{color:"#6a6a7e",fontStyle:"italic"}}>{hoverBar.film.status==="tba"?"TBA":"Coming soon"}</span>}
               </div>
@@ -2641,7 +2641,7 @@ function BudgetDonut({exec}){
     </div>);
 }
 
-// ─── BO SHARE DONUT — earnings + unspent budget share ──────────────────
+// ─── BO SHARE DONUT - earnings + unspent budget share ──────────────────
 function BOShareDonut({exec}){
   const releasedFilms=[...exec.films].filter(f=>f.bo>0).sort((a,b)=>b.bo-a.bo);
   const rem=REMAINDERS[exec.name];
@@ -2677,7 +2677,7 @@ function BOShareDonut({exec}){
     return`M${cx+or*Math.cos(s1)},${cy+or*Math.sin(s1)} A${or},${or} 0 ${la} 1 ${cx+or*Math.cos(e1)},${cy+or*Math.sin(e1)} L${cx+ir*Math.cos(e1)},${cy+ir*Math.sin(e1)} A${ir},${ir} 0 ${la} 0 ${cx+ir*Math.cos(s1)},${cy+ir*Math.sin(s1)} Z`;
   }
 
-  // Zero state — dim placeholder ring
+  // Zero state - dim placeholder ring
   if(grandTotal===0){
     return(
       <div ref={donutRef} style={{textAlign:"center",display:"flex",flexDirection:"column",alignItems:"center"}}>
@@ -2880,7 +2880,7 @@ function AwardsTab({films}){
         execs[f.team].voided+=f.bid;
       }
     });
-    const budget=500; // $M — ideally from leagueCtx but using default
+    const budget=500; // $M - ideally from leagueCtx but using default
     return Object.values(execs).map(e=>{
       const unspent=Math.max(0,budget-e.spent)*1e6;
       const awardEV=(execAwardEVs[e.team]?.total||0)*1e6;
@@ -3084,7 +3084,7 @@ function AwardsTab({films}){
 
 // ─── RULES ──────────────────
 function Rules(){
-  const rules=[["🎬","5 Studio Execs, each with a $500M budget"],["💰","Minimum spend of $10M per film"],["📅",`Eligibility: ${ELIGIBILITY_START} – ${ELIGIBILITY_END}`],["🏆","Oscar nominations worth $25M each"],["🏆","Oscar wins worth $25M each"],["👑","Best Picture win worth $50M"],["⭐","Bonus Star: $25M for best ROI (real budget vs domestic BO)"],["📊","Domestic BO via Box Office Mojo, tallied March 13, 2027"],["💵","Unused budget added to final total"],["🎰","Festival winners can be drafted sight-unseen ($10M+ each)"],["🚫","Canceled / delayed / streaming-only films: no refund"],["🔒","No changes after auction — no redraft at any roint"],["💵","$50 buy-in — winner takes all"],["😱","Loser: Razzie worst picture director's commentary + forced rewatch"]];
+  const rules=[["🎬","5 Studio Execs, each with a $500M budget"],["💰","Minimum spend of $10M per film"],["📅",`Eligibility: ${ELIGIBILITY_START} – ${ELIGIBILITY_END}`],["🏆","Oscar nominations worth $25M each"],["🏆","Oscar wins worth $25M each"],["👑","Best Picture win worth $50M"],["⭐","Bonus Star: $25M for best ROI (real budget vs domestic BO)"],["📊","Domestic BO via Box Office Mojo, tallied March 13, 2027"],["💵","Unused budget added to final total"],["🎰","Festival winners can be drafted sight-unseen ($10M+ each)"],["🚫","Canceled / delayed / streaming-only films: no refund"],["🔒","No changes after auction - no redraft at any roint"],["💵","$50 buy-in - winner takes all"],["😱","Loser: Razzie worst picture director's commentary + forced rewatch"]];
   return(<div style={{background:"#111119",border:"1px solid #222233",borderRadius:10,padding:"16px 14px"}}><div style={{fontSize:16,fontWeight:900,color:"#d4a843",letterSpacing:"0.06em",marginBottom:14}}>GAME RULES</div>{rules.map(([icon,text],i)=>(<div key={i} style={{padding:"7px 0",fontSize:13,color:"#9a9ab0",lineHeight:1.5,borderBottom:i<rules.length-1?"1px solid #14141e":"none"}}><span style={{marginRight:8}}>{icon}</span>{text}</div>))}</div>);
 }
 
@@ -3123,7 +3123,7 @@ function ManageTab({leagueContext, members, userMembership}){
           <div>
             <div style={{fontSize:13,fontWeight:600,color:'#e8e8f0',marginBottom:4}}>Draft Status</div>
             <div style={{fontSize:12,color:'#6a6a7e'}}>
-              Currently: <span style={{color:draftStatus==='open'?'#34d399':'#6a6a7e',fontWeight:700}}>{draftStatus==='open'?'Open — players can submit picks':'Locked — only you can make changes'}</span>
+              Currently: <span style={{color:draftStatus==='open'?'#34d399':'#6a6a7e',fontWeight:700}}>{draftStatus==='open'?'Open - players can submit picks':'Locked - only you can make changes'}</span>
             </div>
           </div>
           <button onClick={toggleDraft} style={{padding:'8px 18px',borderRadius:7,border:`1px solid ${draftStatus==='open'?'rgba(239,68,68,0.3)':'rgba(52,211,153,0.3)'}`,background:draftStatus==='open'?'rgba(239,68,68,0.1)':'rgba(52,211,153,0.1)',color:draftStatus==='open'?'#ef4444':'#34d399',fontSize:12,fontWeight:700,cursor:'rointer'}}>
@@ -3161,8 +3161,8 @@ function ManageTab({leagueContext, members, userMembership}){
           {members.map((m,i)=>(
             <div key={i} style={{display:'flex',alignItems:'center',gap:10,padding:'9px 12px',background:'#1a1a28',borderRadius:6}}>
               <div style={{flex:1}}>
-                <div style={{fontSize:13,fontWeight:600,color:'#e8e8f0'}}>{m.profile?.display_name||m.profile?.email||'—'}</div>
-                <div style={{fontSize:11,color:'#6a6a7e',fontFamily:'monospace'}}>{m.team_name||'—'}</div>
+                <div style={{fontSize:13,fontWeight:600,color:'#e8e8f0'}}>{m.profile?.display_name||m.profile?.email||'-'}</div>
+                <div style={{fontSize:11,color:'#6a6a7e',fontFamily:'monospace'}}>{m.team_name||'-'}</div>
               </div>
               <div style={{padding:'2px 8px',borderRadius:4,fontSize:10,fontWeight:700,letterSpacing:'0.08em',textTransform:'uppercase',
                 background:m.role==='admin'?'rgba(212,168,67,0.1)':'rgba(52,211,153,0.1)',
@@ -3178,10 +3178,10 @@ function ManageTab({leagueContext, members, userMembership}){
       <div style={{background:'#111119',border:'1px solid #222233',borderRadius:10,padding:'16px 14px'}}>
         <div style={{fontSize:12,fontWeight:700,color:'#d4a843',letterSpacing:'0.08em',textTransform:'uppercase',marginBottom:10}}>Invite Code</div>
         <div style={{display:'flex',alignItems:'center',gap:12,background:'#1a1a28',borderRadius:7,padding:'14px 16px'}}>
-          <div style={{fontFamily:'monospace',fontSize:22,fontWeight:700,letterSpacing:'0.18em',color:'#d4a843',flex:1}}>{l.invite_code||'—'}</div>
+          <div style={{fontFamily:'monospace',fontSize:22,fontWeight:700,letterSpacing:'0.18em',color:'#d4a843',flex:1}}>{l.invite_code||'-'}</div>
           <button onClick={copyInviteCode} style={{padding:'6px 12px',borderRadius:5,border:'1px solid #222233',background:'transparent',color:'#6a6a7e',fontSize:11,cursor:'rointer',fontFamily:'monospace'}}>Copy</button>
         </div>
-        <div style={{fontSize:11,color:'#4a4a5e',marginTop:8}}>Share this code with players — they join at studioexecfantasy.com</div>
+        <div style={{fontSize:11,color:'#4a4a5e',marginTop:8}}>Share this code with players - they join at studioexecfantasy.com</div>
       </div>
 
       {/* Danger Zone */}
@@ -3200,7 +3200,7 @@ function ManageTab({leagueContext, members, userMembership}){
 }
 
 
-// ── FILM UNIVERSE — curated list of major 2026/27 releases ───────────────────
+// ── FILM UNIVERSE - curated list of major 2026/27 releases ───────────────────
 const FILM_UNIVERSE = [
   {title:"Avengers: Doomsday", release:"2026-12-18", note:"Marvel"},
   {title:"Dune: Part Three", release:"2026-12-18", note:"Sci-Fi Epic"},
