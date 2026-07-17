@@ -1,0 +1,10 @@
+{
+  "cleanUrls": true,
+  "trailingSlash": false,
+  "rewrites": [
+    { "source": "/league", "destination": "/league.html" },
+    { "source": "/dashboard", "destination": "/dashboard.html" },
+    { "source": "/reset-password", "destination": "/reset-password.html" },
+    { "source": "/join", "destination": "/join.html" }
+  ]
+}
