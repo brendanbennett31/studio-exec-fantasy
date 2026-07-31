@@ -51,6 +51,12 @@ header{position:sticky;top:0;z-index:50;height:60px;padding:0 32px;display:flex;
 .btn-sm{padding:5px 12px;font-size:12px}
 .btn:disabled{opacity:0.5;cursor:not-allowed}
 
+/* ── SEASON TABS ── */
+.season-tabs{display:flex;gap:2px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:3px;margin-bottom:20px;width:fit-content}
+.season-tab{padding:8px 18px;border:none;border-radius:6px;background:transparent;color:var(--muted);font-size:12px;font-weight:600;letter-spacing:0.04em;cursor:pointer;font-family:'Inter',sans-serif;transition:all 0.15s}
+.season-tab.active{background:var(--bg3);color:var(--gold)}
+.season-tab:not(.active):hover{color:var(--text)}
+
 /* ── TOOLBAR ── */
 .toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:20px;flex-wrap:wrap}
 .search-box{position:relative;flex:1;min-width:220px;max-width:340px}
@@ -62,7 +68,7 @@ header{position:sticky;top:0;z-index:50;height:60px;padding:0 32px;display:flex;
 /* ── TABLE ── */
 .table-wrap{background:var(--bg2);border:1px solid var(--border);border-radius:12px;overflow:hidden}
 .table-scroll{overflow-x:auto}
-table{width:100%;border-collapse:collapse;font-size:13px;min-width:820px}
+table{width:100%;border-collapse:collapse;font-size:13px;min-width:560px}
 thead th{text-align:left;padding:12px 14px;font-size:10px;font-weight:600;letter-spacing:0.1em;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--border);white-space:nowrap;background:var(--bg2)}
 th.sortable{cursor:pointer;user-select:none}
 th.sortable:hover{color:var(--text)}
@@ -180,31 +186,19 @@ textarea.form-input{resize:vertical;min-height:70px}
   <div class="modal">
     <button class="modal-close" onclick="closeModal('filmModal')">✕</button>
     <div class="modal-title" id="filmModalTitle">ADD FILM</div>
-    <div class="modal-sub">Add a film to the universe of eligible releases.</div>
+    <div class="modal-sub">Add a film to the universe of releases.</div>
 
     <div class="form-group">
       <label class="form-label">Title</label>
       <input class="form-input" type="text" id="fm-title" placeholder="e.g. The Odyssey"/>
     </div>
-    <div class="form-row">
-      <div class="form-group">
-        <label class="form-label">Release Date</label>
-        <input class="form-input" type="date" id="fm-release"/>
-      </div>
-      <div class="form-group">
-        <label class="form-label">Studio</label>
-        <input class="form-input" type="text" id="fm-studio" placeholder="e.g. Universal"/>
-      </div>
-    </div>
     <div class="form-group">
       <label class="form-label">IMDb ID <span style="text-transform:none;letter-spacing:normal;opacity:0.7">(e.g. tt1234567)</span></label>
       <input class="form-input" type="text" id="fm-imdb" placeholder="tt1234567"/>
     </div>
-    <div class="form-toggle-row">
-      <div class="form-toggle-info">
-        <label for="fm-eligible">Oscar Eligible</label>
-      </div>
-      <label class="toggle"><input type="checkbox" id="fm-eligible" checked/><span class="toggle-slider"></span></label>
+    <div class="form-group">
+      <label class="form-label">Release Date <span style="text-transform:none;letter-spacing:normal;opacity:0.7">optional — your best estimate if Box Office Mojo doesn't have it yet</span></label>
+      <input class="form-input" type="date" id="fm-release"/>
     </div>
     <div class="form-group">
       <label class="form-label">Notes <span style="text-transform:none;letter-spacing:normal;opacity:0.7">optional</span></label>
@@ -245,6 +239,44 @@ let searchQuery = '';
 let sortKey = 'release_date';
 let sortDir = 'asc';
 let _deleteTargetId = null;
+
+// ── SEASONS ───────────────────────────────────────────────────────────────────
+// Oscar Sunday to Oscar Sunday, matching league.html's ELIGIBILITY_START/END
+// for the 2026 window. The 2027 window's end (100th Academy Awards) is
+// confirmed for March 5, 2028 -- update this constant if/when a season
+// beyond that is announced.
+const SEASONS = [
+  { id: 'season-2026', label: '2026 Season', start: '2026-03-16', end: '2027-03-14' },
+  { id: 'season-2027', label: '2027 Season', start: '2027-03-15', end: '2028-03-05' },
+];
+let activeSeasonId = getCurrentSeasonId();
+
+// Which season "today" falls in — used both as the default tab and as the
+// home for films with no release date yet (see filmSeasonId below).
+function getCurrentSeasonId() {
+  const today = new Date().toISOString().slice(0, 10);
+  const s = SEASONS.find(s => today >= s.start && today <= s.end);
+  return s ? s.id : SEASONS[0].id;
+}
+
+// A film with a release date belongs to whichever season window contains
+// it. A film with no release date yet (e.g. an admin knows it's coming but
+// Box Office Mojo has nothing on it, so no estimate was entered either) is
+// considered part of whatever season is currently active in the real
+// world — it stays there until either a date comes in, or the active
+// season itself rolls over.
+function filmSeasonId(film) {
+  if (film.release_date) {
+    const match = SEASONS.find(s => film.release_date >= s.start && film.release_date <= s.end);
+    return match ? match.id : null; // outside every defined season window
+  }
+  return getCurrentSeasonId();
+}
+
+function handleSeasonTab(id) {
+  activeSeasonId = id;
+  render();
+}
 
 // ── AUTH (same pattern as dashboard.html / league.html) ────────────────────────
 async function refreshSession(s) {
@@ -367,7 +399,13 @@ function render() {
       My Dashboard
     </a>
     <div class="page-title">UNIVERSE OF FILMS</div>
-    <div class="page-sub">${isAdmin ? 'The full slate of eligible releases — add, edit, and retire films here.' : 'The full slate of eligible releases for this season.'}</div>
+    <div class="page-sub">${isAdmin ? 'The full slate of releases — add, edit, and retire films here.' : 'The full slate of releases for this season.'}</div>
+
+    <div class="season-tabs">
+      ${SEASONS.map(s => `
+        <button class="season-tab ${activeSeasonId===s.id?'active':''}" onclick="handleSeasonTab('${s.id}')">${s.label}</button>
+      `).join('')}
+    </div>
 
     <div class="toolbar">
       <div class="search-box">
@@ -392,7 +430,7 @@ function render() {
 }
 
 function getVisibleFilms() {
-  let list = films;
+  let list = films.filter(f => filmSeasonId(f) === activeSeasonId);
   if (searchQuery.trim()) {
     const q = searchQuery.trim().toLowerCase();
     list = list.filter(f => (f.title||'').toLowerCase().includes(q));
@@ -439,7 +477,11 @@ function renderTable() {
   }
 
   if (visible.length === 0) {
-    container.innerHTML = `<div class="empty-state"><h3>No matches</h3><p>No films match "${escHtml(searchQuery)}".</p></div>`;
+    const seasonLabel = SEASONS.find(s => s.id === activeSeasonId)?.label || 'this season';
+    const msg = searchQuery.trim()
+      ? `No films in ${seasonLabel} match "${escHtml(searchQuery)}".`
+      : `No films in ${seasonLabel} yet.`;
+    container.innerHTML = `<div class="empty-state"><h3>No matches</h3><p>${msg}</p></div>`;
     return;
   }
 
@@ -451,9 +493,7 @@ function renderTable() {
             <tr>
               <th class="sortable col-title" onclick="handleSort('title')">Title${sortArrow('title')}</th>
               <th class="sortable" onclick="handleSort('release_date')">Release Date${sortArrow('release_date')}</th>
-              <th>Studio</th>
               <th class="col-imdb">IMDb ID</th>
-              <th>Eligible</th>
               <th class="col-notes">Notes</th>
               ${isAdmin ? '<th class="col-actions"></th>' : ''}
             </tr>
@@ -473,9 +513,7 @@ function renderRow(f) {
       <tr>
         <td class="col-title"><div class="cell-static">${escHtml(f.title)||'—'}</div></td>
         <td><div class="cell-static">${formatDate(f.release_date)}</div></td>
-        <td><div class="cell-static">${escHtml(f.studio)||'—'}</div></td>
         <td class="col-imdb"><div class="cell-static">${escHtml(f.imdb_id)||'—'}</div></td>
-        <td><div class="cell-static ${f.eligible?'':'muted'}">${f.eligible?'Yes':'No'}</div></td>
         <td class="col-notes"><div class="cell-static ${f.notes?'':'muted'}">${escHtml(f.notes)||'—'}</div></td>
       </tr>
     `;
@@ -483,19 +521,11 @@ function renderRow(f) {
   return `
     <tr data-film-id="${f.id}">
       <td class="col-title"><input class="cell-input" value="${escHtml(f.title)}" placeholder="Title"
-        onblur="saveField(${f.id},'title',this.value,this)" onkeydown="if(event.key==='Enter')this.blur()"/></td>
+        onblur="saveTitleOrImdb(${f.id},'title',this.value,this)" onkeydown="if(event.key==='Enter')this.blur()"/></td>
       <td><input class="cell-input" type="date" value="${f.release_date||''}"
-        onchange="saveField(${f.id},'release_date',this.value||null,this)"/></td>
-      <td><input class="cell-input" value="${escHtml(f.studio)||''}" placeholder="—"
-        onblur="saveField(${f.id},'studio',this.value,this)" onkeydown="if(event.key==='Enter')this.blur()"/></td>
+        onchange="saveReleaseDate(${f.id},this.value||null,this)"/></td>
       <td class="col-imdb"><input class="cell-input" value="${escHtml(f.imdb_id)||''}" placeholder="tt…"
-        onblur="saveField(${f.id},'imdb_id',this.value,this)" onkeydown="if(event.key==='Enter')this.blur()"/></td>
-      <td>
-        <label class="toggle" style="width:34px;height:19px">
-          <input type="checkbox" ${f.eligible?'checked':''} onchange="saveField(${f.id},'eligible',this.checked,this)"/>
-          <span class="toggle-slider"></span>
-        </label>
-      </td>
+        onblur="saveTitleOrImdb(${f.id},'imdb_id',this.value,this)" onkeydown="if(event.key==='Enter')this.blur()"/></td>
       <td class="col-notes"><input class="cell-input" value="${escHtml(f.notes)||''}" placeholder="—"
         onblur="saveField(${f.id},'notes',this.value,this)" onkeydown="if(event.key==='Enter')this.blur()"/></td>
       <td class="col-actions">
@@ -527,6 +557,24 @@ function handleSort(key) {
 }
 
 // ── INLINE EDIT ───────────────────────────────────────────────────────────────
+// Wraps saveField for the title/imdb_id columns specifically, so editing an
+// existing film into a duplicate of another one gets caught the same way
+// adding a new duplicate does — reverts the input and explains why instead
+// of silently saving.
+async function saveTitleOrImdb(filmId, column, value, inputEl) {
+  const film = films.find(f => f.id === filmId);
+  if (!film) return;
+  const nextTitle = column === 'title' ? value : film.title;
+  const nextImdb = column === 'imdb_id' ? value : film.imdb_id;
+  const dup = findDuplicateFilm(nextTitle, nextImdb, filmId);
+  if (dup) {
+    inputEl.value = film[column] || '';
+    showToast(`Already on the list as "${dup.title}" — change reverted`, true);
+    return;
+  }
+  await saveField(filmId, column, value, inputEl);
+}
+
 async function saveField(filmId, column, value, inputEl) {
   if (!isAdmin) return;
   const film = films.find(f => f.id === filmId);
@@ -550,18 +598,51 @@ async function saveField(filmId, column, value, inputEl) {
   }
 }
 
+// Release date is admin-editable (an estimate the scraper can later
+// confirm/correct against Box Office Mojo), but changing it can move the
+// film into a different season tab — re-render so that's reflected
+// immediately instead of leaving a stale row in the old tab.
+async function saveReleaseDate(filmId, value, inputEl) {
+  await saveField(filmId, 'release_date', value, inputEl);
+  renderTable();
+}
+
 // ── ADD FILM ──────────────────────────────────────────────────────────────────
 function openAddFilmModal() {
   if (!isAdmin) return;
   document.getElementById('filmModalTitle').textContent = 'ADD FILM';
   document.getElementById('fm-title').value = '';
-  document.getElementById('fm-release').value = '';
-  document.getElementById('fm-studio').value = '';
   document.getElementById('fm-imdb').value = '';
-  document.getElementById('fm-eligible').checked = true;
+  document.getElementById('fm-release').value = '';
   document.getElementById('fm-notes').value = '';
   document.getElementById('filmError').classList.remove('show');
   openModal('filmModal');
+}
+
+// Normalizes a title for fuzzy duplicate matching: lowercase, strip a
+// leading "the"/"a"/"an", strip punctuation, collapse whitespace. Same
+// approach league.html's BiggestMisses feature uses to match slate titles
+// against the universe CSV.
+function normTitle(t) {
+  return (t||'').toLowerCase()
+    .replace(/^(the |a |an )/, '')
+    .replace(/[^a-z0-9 ]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+// Returns the existing film that conflicts with the given title/imdbId, or
+// null if there's no duplicate. Checked before adding a new film so the
+// same movie can't end up on the list twice under a slightly different
+// title (e.g. "The Odyssey" vs "Odyssey").
+function findDuplicateFilm(title, imdbId, excludeId) {
+  const normed = normTitle(title);
+  const idLower = (imdbId||'').trim().toLowerCase();
+  return films.find(f => {
+    if (excludeId != null && f.id === excludeId) return false;
+    if (idLower && (f.imdb_id||'').trim().toLowerCase() === idLower) return true;
+    return normTitle(f.title) === normed;
+  }) || null;
 }
 
 async function handleSaveFilm() {
@@ -575,12 +656,18 @@ async function handleSaveFilm() {
     return;
   }
 
+  const imdbId = document.getElementById('fm-imdb').value.trim() || null;
+  const dup = findDuplicateFilm(title, imdbId);
+  if (dup) {
+    errEl.textContent = `Already on the list as "${dup.title}"${dup.imdb_id ? ` (${dup.imdb_id})` : ''}.`;
+    errEl.classList.add('show');
+    return;
+  }
+
   const payload = {
     title,
+    imdb_id: imdbId,
     release_date: document.getElementById('fm-release').value || null,
-    studio: document.getElementById('fm-studio').value.trim() || null,
-    imdb_id: document.getElementById('fm-imdb').value.trim() || null,
-    eligible: document.getElementById('fm-eligible').checked,
     notes: document.getElementById('fm-notes').value.trim() || null,
   };
 
@@ -599,8 +686,12 @@ async function handleSaveFilm() {
   }
 
   films.push(data[0]);
+  // Jump to whichever season tab the new film actually belongs to, in case
+  // it's not the one currently being viewed — otherwise it looks like the
+  // film vanished right after being added.
+  activeSeasonId = filmSeasonId(data[0]);
   closeModal('filmModal');
-  renderTable();
+  render();
   showToast('Film added');
 }
 
