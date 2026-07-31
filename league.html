@@ -230,7 +230,7 @@ async function loadLeagueContext() {
     // created_by, so their leagues lookup asks for a narrower column set —
     // this is app-level hygiene, not the security boundary (RLS is).
     const leagueSelect = PUBLIC_VIEW_MODE
-      ? "id,name,season,budget,draft_status,num_players,min_bid,max_bid,oscar_nom_bonus,oscar_win_bonus,bp_bonus,festival_picks,draft_open_date,draft_close_date,season_end_date,description,is_public"
+      ? "id,name,season,budget,draft_status,num_players,min_bid,max_bid,oscar_nom_bonus,oscar_win_bonus,bp_bonus,festival_picks,draft_open_date,draft_close_date,season_end_date,description,is_public,sacko_punishment"
       : "*";
     const leagues = await supabaseFetch("leagues", `id=eq.${LEAGUE_UUID}&select=${leagueSelect}`);
     if (leagues.length) LEAGUE_CONTEXT = leagues[0];
@@ -1340,7 +1340,7 @@ function App(){
         {endgameActive&&<EndgameCountdownBanner theme={theme}/>}
 
         <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6,margin:"8px 0 16px"}}>
-          {[{v:fmt(totalBO),l:"Combined BO"},{v:`${released}/${totalFilms}`,l:"Released"},{v:String(totalFilms-released),l:"Films Left"},{v:"$250",l:"Prize Pool"}].map((c,i)=>{
+          {[{v:fmt(totalBO),l:"Combined BO"},{v:`${released}/${totalFilms}`,l:"Released"},{v:String(totalFilms-released),l:"Films Left"},{v:data.ranked.length?(DISPLAY[data.ranked[data.ranked.length-1].name]||data.ranked[data.ranked.length-1].name):"—",l:"Sacko"}].map((c,i)=>{
             const todayCount=films.filter(f=>isReleaseDay(f.release)).length;
             if(i===1) return <ReleasedTile key={i} released={released} totalFilms={totalFilms} todayCount={todayCount} theme={theme}/>;
             return(
@@ -3393,6 +3393,7 @@ function Rules({leagueCtx}){
     ...(festivals?[["dice","Festival futures can be drafted sight-unseen"]]:[] ),
     ["ban","Voided films: money lost, no refund"],
     ["lock","No changes after the draft — no redrafting at any point"],
+    ...(l.sacko_punishment?[["sacko",`Sacko (last place): ${l.sacko_punishment}`]]:[] ),
   ];
   return(
     <div style={{display:"flex",flexDirection:"column",gap:12}}>
@@ -3422,6 +3423,7 @@ function Rules({leagueCtx}){
           {icon==="dice"&&<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><rect x="1" y="1" width="10" height="10" rx="2" stroke="currentColor" strokeWidth="1.2"/><circle cx="4" cy="4" r="0.8" fill="currentColor"/><circle cx="8" cy="8" r="0.8" fill="currentColor"/><circle cx="6" cy="6" r="0.8" fill="currentColor"/></svg>}
           {icon==="ban"&&<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><circle cx="6" cy="6" r="5" stroke="currentColor" strokeWidth="1.2"/><path d="M2.5 2.5l7 7" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/></svg>}
           {icon==="lock"&&<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><rect x="2" y="5.5" width="8" height="5.5" rx="1" stroke="currentColor" strokeWidth="1.2"/><path d="M4 5.5V4a2 2 0 0 1 4 0v1.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/></svg>}
+          {icon==="sacko"&&<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="6" stroke="currentColor" strokeWidth="1.2"/><circle cx="5" cy="5.5" r="0.9" fill="currentColor"/><circle cx="9" cy="5.5" r="0.9" fill="currentColor"/><path d="M4.5 10c0.7-1.3 2.1-2 2.5-2s1.8 0.7 2.5 2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/></svg>}
         </span>
           <span>{text}</span>
         </div>
@@ -3448,6 +3450,7 @@ function ManageTab({leagueContext, members, userMembership}){
     bp_bonus: l.bp_bonus||50,
     festival_picks: l.festival_picks!==false,
     num_players: l.num_players||5,
+    sacko_punishment: l.sacko_punishment||'',
   });
 
   async function toggleDraft(){
@@ -3473,6 +3476,7 @@ function ManageTab({leagueContext, members, userMembership}){
       bp_bonus:Number(rules.bp_bonus)||50,
       festival_picks:rules.festival_picks,
       num_players:Number(rules.num_players)||5,
+      sacko_punishment:rules.sacko_punishment.trim()||null,
     };
     const res=await fetch(`${SUPABASE_URL}/rest/v1/leagues?id=eq.${LEAGUE_UUID}`,{
       method:'PATCH',
@@ -3598,6 +3602,10 @@ function ManageTab({leagueContext, members, userMembership}){
                 <div style={{fontSize:9,color:'#6a6a7e',textTransform:'uppercase',letterSpacing:'0.1em',marginTop:2}}>{label}</div>
               </div>
             ))}
+            <div style={{background:'#1a1a28',borderRadius:7,padding:'10px 12px',gridColumn:'1/-1'}}>
+              <div style={{fontSize:13,color:rules.sacko_punishment?'#e8e8f0':'#6a6a7e',fontStyle:rules.sacko_punishment?'normal':'italic'}}>{rules.sacko_punishment||'No sacko punishment set yet.'}</div>
+              <div style={{fontSize:9,color:'#6a6a7e',textTransform:'uppercase',letterSpacing:'0.1em',marginTop:4}}>Sacko Punishment</div>
+            </div>
           </div>
         ):(
           <div>
@@ -3622,6 +3630,10 @@ function ManageTab({leagueContext, members, userMembership}){
                   style={{width:40,height:22,borderRadius:11,border:'none',background:rules.festival_picks?'#34d399':'#3a3a50',cursor:'pointer',position:'relative',transition:'background 0.2s',flexShrink:0}}>
                   <div style={{width:16,height:16,borderRadius:'50%',background:'#fff',position:'absolute',top:3,left:rules.festival_picks?20:3,transition:'left 0.2s'}}/>
                 </button>
+              </div>
+              <div style={{gridColumn:'1/-1'}}>
+                <label style={{display:'block',fontSize:9,color:'#6a6a7e',letterSpacing:'0.1em',textTransform:'uppercase',marginBottom:5}}>Sacko Punishment <span style={{textTransform:'none',letterSpacing:'normal'}}>(what last place has to do)</span></label>
+                <textarea style={{...inp,minHeight:64,resize:'vertical',fontFamily:"'Helvetica Neue',sans-serif"}} value={rules.sacko_punishment} onChange={e=>setRules(r=>({...r,sacko_punishment:e.target.value}))} placeholder="e.g. Wear the Sacko hat to the next draft night"/>
               </div>
             </div>
           </div>
