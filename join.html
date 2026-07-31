@@ -87,6 +87,44 @@ function getSession() {
   } catch(e) { return null; }
 }
 
+async function refreshSession(s) {
+  try {
+    if (!s.refresh_token) return null;
+    const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
+      method: 'POST',
+      headers: { 'apikey': SUPABASE_ANON_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_token: s.refresh_token })
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (!data.access_token) return null;
+    const newSession = {
+      access_token: data.access_token,
+      refresh_token: data.refresh_token || s.refresh_token,
+      expires_at: data.expires_at || Math.floor(Date.now()/1000) + 3600,
+      user: data.user || s.user
+    };
+    localStorage.setItem('sef_session', JSON.stringify(newSession));
+    return newSession;
+  } catch(e) { return null; }
+}
+
+// Tries the refresh_token before treating an expired access token as "logged
+// out" — otherwise someone whose token expired between visits gets shown the
+// sign-in form on an invite link even though they were already logged in.
+async function ensureValidSession() {
+  try {
+    const raw = localStorage.getItem('sef_session');
+    if (!raw) return null;
+    const s = JSON.parse(raw);
+    if (!s.access_token) return null;
+    const expiresAt = s.expires_at ? new Date(s.expires_at * 1000) : null;
+    const soonExpired = !expiresAt || expiresAt < new Date(Date.now() + 5 * 60 * 1000);
+    if (soonExpired) return await refreshSession(s);
+    return s;
+  } catch(e) { return null; }
+}
+
 function show(id) {
   ['stateLoading','stateJoin','stateAlready','stateInvalid','stateSuccess'].forEach(s => {
     document.getElementById(s).style.display = s === id ? 'block' : 'none';
@@ -284,7 +322,7 @@ async function init() {
 
   // Handle OAuth callback (Google sign-in)
   const oauthSession = await handleOAuthCallback();
-  const session = oauthSession || getSession();
+  const session = oauthSession || await ensureValidSession();
 
   // Look up the league by invite code
   const league = await sbGet(`leagues?invite_code=eq.${inviteCode}&select=id,name`);

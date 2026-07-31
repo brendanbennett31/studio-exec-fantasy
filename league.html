@@ -116,7 +116,54 @@ function getSession() {
     if (!raw) return null;
     const s = JSON.parse(raw);
     if (!s.access_token) return null;
+    // Expired access tokens are left in place here — refreshing (via the
+    // refresh_token) is handled separately by ensureValidSession(), which runs
+    // before the app renders. Deleting the session on mere access-token expiry
+    // would throw away a still-valid refresh_token and force an unnecessary re-login.
     if (s.expires_at && new Date(s.expires_at * 1000) < new Date()) {
+      return null;
+    }
+    return s;
+  } catch(e) { return null; }
+}
+
+async function refreshSession(s) {
+  try {
+    if (!s.refresh_token) return null;
+    const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
+      method: 'POST',
+      headers: { 'apikey': SUPABASE_ANON_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_token: s.refresh_token })
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (!data.access_token) return null;
+    const newSession = {
+      access_token: data.access_token,
+      refresh_token: data.refresh_token || s.refresh_token,
+      expires_at: data.expires_at || Math.floor(Date.now()/1000) + 3600,
+      user: data.user || s.user
+    };
+    localStorage.setItem('sef_session', JSON.stringify(newSession));
+    return newSession;
+  } catch(e) { return null; }
+}
+
+// Ensures the stored session has a live access token, refreshing it via the
+// refresh_token when it's missing/expired/expiring soon. Only clears the
+// stored session (real logout) when a refresh is actually attempted and fails —
+// never just because the short-lived access token aged out.
+async function ensureValidSession() {
+  try {
+    const raw = localStorage.getItem('sef_session');
+    if (!raw) return null;
+    const s = JSON.parse(raw);
+    if (!s.access_token) return null;
+    const expiresAt = s.expires_at ? new Date(s.expires_at * 1000) : null;
+    const soonExpired = !expiresAt || expiresAt < new Date(Date.now() + 5 * 60 * 1000);
+    if (soonExpired) {
+      const refreshed = await refreshSession(s);
+      if (refreshed) return refreshed;
       localStorage.removeItem('sef_session');
       return null;
     }
@@ -138,9 +185,9 @@ const LEGACY_ID_MAP = {
 const LEAGUE_ID = LEAGUE_UUID ? (LEGACY_ID_MAP[LEAGUE_UUID] || LEAGUE_UUID) : 'sef-2026';
 const IS_LEGACY = !LEAGUE_UUID;
 
-if (!IS_LEGACY && !getSession()) {
-  window.location.href = '/';
-}
+// Auth gate is async (see boot() near the bottom, which awaits ensureValidSession()
+// before deciding to redirect) so an expired-but-refreshable access token gets a
+// chance to refresh instead of bouncing the user to login.
 
 let LEAGUE_CONTEXT = null;
 let USER_MEMBERSHIP = null;
@@ -3688,7 +3735,16 @@ function SettingsPanel({membership, leagueCtx, onClose}){
   );
 }
 
-ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App));
+(async function boot(){
+  if (!IS_LEGACY) {
+    const valid = await ensureValidSession();
+    if (!valid) { window.location.href = '/'; return; }
+    // Keep the access token fresh in the background for as long as this tab
+    // stays open, so a long-idle tab doesn't start silently failing requests.
+    setInterval(ensureValidSession, 4 * 60 * 1000);
+  }
+  ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App));
+})();
 </script>
 </body>
 </html>
