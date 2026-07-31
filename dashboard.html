@@ -267,6 +267,15 @@ header{position:sticky;top:0;z-index:50;height:60px;padding:0 32px;display:flex;
       </div>
       <label class="toggle"><input type="checkbox" id="cl-festival" checked/><span class="toggle-slider"></span></label>
     </div>
+
+    <div class="form-section-label">Privacy</div>
+    <div class="form-toggle-row">
+      <div class="form-toggle-info">
+        <label for="cl-public">Public League</label>
+        <small>Generates a read-only link anyone can view without an account. Off by default — you can turn this on or off anytime from Manage.</small>
+      </div>
+      <label class="toggle"><input type="checkbox" id="cl-public"/><span class="toggle-slider"></span></label>
+    </div>
     <div class="form-row" style="margin-top:16px">
       <div class="form-group">
         <label class="form-label">Draft Opens <span class="form-label-hint">optional</span></label>
@@ -659,6 +668,7 @@ async function handleCreateLeague() {
   const oscWin = parseInt(document.getElementById('cl-win').value) || 25;
   const bp = parseInt(document.getElementById('cl-bp').value) || 50;
   const festival = document.getElementById('cl-festival').checked;
+  const isPublic = document.getElementById('cl-public').checked;
   const draftOpen = document.getElementById('cl-draftopen').value || null;
   const draftClose = document.getElementById('cl-draftclose').value || null;
   const seasonEnd = document.getElementById('cl-seasonend').value || null;
@@ -673,6 +683,13 @@ async function handleCreateLeague() {
   const userId = currentSession.user?.id;
   setLoading('createBtn', true, 'Create League');
 
+  // Random token for the public view-only link (see league.html's
+  // ?view= handling). Generated regardless of the toggle so flipping it on
+  // later from Manage doesn't need a fresh token.
+  const shareTokenBytes = new Uint8Array(9);
+  crypto.getRandomValues(shareTokenBytes);
+  const shareToken = Array.from(shareTokenBytes).map(b => b.toString(16).padStart(2, '0')).join('');
+
   // Create the league
   const { ok, data } = await sbFetch('/rest/v1/leagues?select=*', {
     method: 'POST',
@@ -686,6 +703,8 @@ async function handleCreateLeague() {
       oscar_win_bonus: oscWin,
       bp_bonus: bp,
       festival_picks: festival,
+      is_public: isPublic,
+      share_token: shareToken,
       draft_open_date: draftOpen,
       draft_close_date: draftClose,
       season_end_date: seasonEnd,
