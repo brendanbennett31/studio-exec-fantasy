@@ -248,7 +248,7 @@ async function handleSignin(leagueId) {
   }
   localStorage.setItem('sef_session', JSON.stringify(data));
   // Now get the league and join
-  const league = await sbGet(`leagues?invite_code=eq.${inviteCode}&select=id,name`);
+  const league = await sbGet(`rpc/get_league_by_invite_code?p_invite_code=${inviteCode}`);
   if (league) await joinLeague(league, data);
   else show('stateInvalid');
 }
@@ -274,7 +274,7 @@ async function handleSignup(leagueId) {
   }
   if (data.session) {
     localStorage.setItem('sef_session', JSON.stringify(data.session));
-    const league = await sbGet(`leagues?invite_code=eq.${inviteCode}&select=id,name`);
+    const league = await sbGet(`rpc/get_league_by_invite_code?p_invite_code=${inviteCode}`);
     if (league) await joinLeague(league, data.session);
     else show('stateInvalid');
   } else {
@@ -325,7 +325,7 @@ async function init() {
   const session = oauthSession || await ensureValidSession();
 
   // Look up the league by invite code
-  const league = await sbGet(`leagues?invite_code=eq.${inviteCode}&select=id,name`);
+  const league = await sbGet(`rpc/get_league_by_invite_code?p_invite_code=${inviteCode}`);
   if (!league) { show('stateInvalid'); return; }
 
   if (session) {
