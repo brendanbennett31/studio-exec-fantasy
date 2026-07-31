@@ -173,6 +173,7 @@ async function ensureValidSession() {
 
 const URL_PARAMS = new URLSearchParams(window.location.search);
 const LEAGUE_UUID = URL_PARAMS.get('id') || null;
+const PUBLIC_VIEW_TOKEN = URL_PARAMS.get('view') || null;
 
 // Maps league UUIDs to their legacy text-based league_id in the picks/snapshots tables.
 // Add new entries here as more seasons are created with legacy data.
@@ -189,9 +190,27 @@ const IS_LEGACY = !LEAGUE_UUID;
 // before deciding to redirect) so an expired-but-refreshable access token gets a
 // chance to refresh instead of bouncing the user to login.
 
+// True once boot() confirms ?view=<share_token> matches a league with
+// is_public=true. Lets an unauthenticated visitor render the app read-only
+// without ever holding a session — see verifyPublicView() and boot().
+let PUBLIC_VIEW_MODE = false;
+
 let LEAGUE_CONTEXT = null;
 let USER_MEMBERSHIP = null;
 let LEAGUE_MEMBERS = [];
+
+async function verifyPublicView() {
+  if (!PUBLIC_VIEW_TOKEN || !LEAGUE_UUID) return false;
+  try {
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/leagues?id=eq.${LEAGUE_UUID}&share_token=eq.${encodeURIComponent(PUBLIC_VIEW_TOKEN)}&is_public=eq.true&select=id`,
+      { headers: { apikey: SUPABASE_ANON_KEY } }
+    );
+    if (!res.ok) return false;
+    const rows = await res.json();
+    return rows.length > 0;
+  } catch(e) { return false; }
+}
 
 async function supabaseFetch(table, params="") {
   const session = getSession();
@@ -207,15 +226,32 @@ async function supabaseFetch(table, params="") {
 async function loadLeagueContext() {
   if (IS_LEGACY) return;
   try {
-    const leagues = await supabaseFetch("leagues", `id=eq.${LEAGUE_UUID}&select=*`);
+    // Public viewers never need (and must never receive) invite_code or
+    // created_by, so their leagues lookup asks for a narrower column set —
+    // this is app-level hygiene, not the security boundary (RLS is).
+    const leagueSelect = PUBLIC_VIEW_MODE
+      ? "id,name,season,budget,draft_status,num_players,min_bid,max_bid,oscar_nom_bonus,oscar_win_bonus,bp_bonus,festival_picks,draft_open_date,draft_close_date,season_end_date,description,is_public"
+      : "*";
+    const leagues = await supabaseFetch("leagues", `id=eq.${LEAGUE_UUID}&select=${leagueSelect}`);
     if (leagues.length) LEAGUE_CONTEXT = leagues[0];
-    const members = await supabaseFetch("league_members",
-      `league_id=eq.${LEAGUE_UUID}&select=*,profile:profiles(id,display_name,email)&order=joined_at.asc`
-    );
-    LEAGUE_MEMBERS = members || [];
+
     const session = getSession();
     if (session?.user?.id) {
+      const members = await supabaseFetch("league_members",
+        `league_id=eq.${LEAGUE_UUID}&select=*,profile:profiles(id,display_name,email)&order=joined_at.asc`
+      );
+      LEAGUE_MEMBERS = members || [];
       USER_MEMBERSHIP = LEAGUE_MEMBERS.find(m => m.user_id === session.user.id) || null;
+    } else if (PUBLIC_VIEW_MODE) {
+      // Anonymous public viewer — read display names from the narrow
+      // public_member_names view (never the profiles table directly), so
+      // email can't leak even via a direct API call.
+      const members = await supabaseFetch("public_member_names", `league_id=eq.${LEAGUE_UUID}&order=joined_at.asc`);
+      LEAGUE_MEMBERS = (members || []).map(m => ({
+        id: m.member_id, league_id: m.league_id, user_id: m.user_id,
+        team_name: m.team_name, role: m.role, joined_at: m.joined_at,
+        profile: { display_name: m.display_name }
+      }));
     }
     if (LEAGUE_CONTEXT) document.title = `${LEAGUE_CONTEXT.name} — Studio Exec Fantasy`;
   } catch(e) {
@@ -1224,19 +1260,25 @@ function App(){
       {/* League nav header - shown for all UUID-based leagues */}
       {!IS_LEGACY&&<div style={{position:"sticky",top:0,zIndex:50,height:52,padding:"0 16px",display:"flex",alignItems:"center",justifyContent:"space-between",background:"rgba(8,8,13,0.95)",backdropFilter:"blur(12px)",borderBottom:"1px solid #222233"}}>
         <div style={{display:"flex",alignItems:"center",gap:12,minWidth:0}}>
-          <a href="/dashboard" style={{display:"flex",alignItems:"center",gap:6,fontFamily:"monospace",fontSize:13,color:"#6a6a7e",textDecoration:"none",flexShrink:0,transition:"color 0.15s"}}
+          <a href={PUBLIC_VIEW_MODE?"/":"/dashboard"} style={{display:"flex",alignItems:"center",gap:6,fontFamily:"monospace",fontSize:13,color:"#6a6a7e",textDecoration:"none",flexShrink:0,transition:"color 0.15s"}}
             onMouseEnter={e=>e.currentTarget.style.color="#e8e8f0"}
             onMouseLeave={e=>e.currentTarget.style.color="#6a6a7e"}>
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M9 2L4 7l5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
-            My Leagues
+            {PUBLIC_VIEW_MODE?"Home":"My Leagues"}
           </a>
           <span style={{color:"#222233",fontSize:16,flexShrink:0}}>/</span>
           <span style={{fontSize:13,fontWeight:600,color:"#e8e8f0",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{leagueCtx?.name||"League"}</span>
         </div>
         <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
-          {isAdmin&&<button onClick={()=>setTab("manage")} style={{fontSize:11,padding:"5px 12px",borderRadius:6,border:`1px solid ${tab==="manage"?"rgba(212,168,67,0.4)":"#222233"}`,background:tab==="manage"?"rgba(212,168,67,0.08)":"transparent",color:tab==="manage"?"#d4a843":"#6a6a7e",cursor:"pointer",fontWeight:600,transition:"all 0.15s"}}>Manage</button>}
+          {PUBLIC_VIEW_MODE&&<>
+            <div style={{fontSize:10,fontWeight:700,letterSpacing:"0.08em",textTransform:"uppercase",padding:"5px 10px",borderRadius:6,background:"rgba(212,168,67,0.08)",color:"#d4a843",border:"1px solid rgba(212,168,67,0.25)"}}>Public View</div>
+            <a href="/" style={{fontSize:11,padding:"5px 12px",borderRadius:6,border:"1px solid #222233",background:"transparent",color:"#6a6a7e",textDecoration:"none",fontWeight:600,transition:"all 0.15s"}}
+              onMouseEnter={e=>e.currentTarget.style.color="#e8e8f0"}
+              onMouseLeave={e=>e.currentTarget.style.color="#6a6a7e"}>Sign In</a>
+          </>}
+          {!PUBLIC_VIEW_MODE&&isAdmin&&<button onClick={()=>setTab("manage")} style={{fontSize:11,padding:"5px 12px",borderRadius:6,border:`1px solid ${tab==="manage"?"rgba(212,168,67,0.4)":"#222233"}`,background:tab==="manage"?"rgba(212,168,67,0.08)":"transparent",color:tab==="manage"?"#d4a843":"#6a6a7e",cursor:"pointer",fontWeight:600,transition:"all 0.15s"}}>Manage</button>}
           {/* Profile icon */}
-          <div style={{position:"relative"}}>
+          {!PUBLIC_VIEW_MODE&&<div style={{position:"relative"}}>
             <button onClick={()=>setShowProfileMenu(p=>!p)}
               style={{width:32,height:32,borderRadius:"50%",background:`${EXEC_COLORS[myTeam]||"#3a3a50"}22`,border:`1.5px solid ${EXEC_COLORS[myTeam]||"#3a3a50"}`,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:11,fontWeight:700,color:EXEC_COLORS[myTeam]||"#9a9ab0",letterSpacing:"0.05em",transition:"all 0.15s",flexShrink:0}}
               onMouseEnter={e=>e.currentTarget.style.background=`${EXEC_COLORS[myTeam]||"#3a3a50"}44`}
@@ -1268,11 +1310,11 @@ function App(){
                 Sign out
               </button>
             </div>}
-          </div>
+          </div>}
         </div>
       </div>}
       {/* Settings panel */}
-      {showSettings&&<SettingsPanel membership={membership} leagueCtx={leagueCtx} onClose={()=>setShowSettings(false)}/>}
+      {!PUBLIC_VIEW_MODE&&showSettings&&<SettingsPanel membership={membership} leagueCtx={leagueCtx} onClose={()=>setShowSettings(false)}/>}
       <div style={{maxWidth:900,margin:"0 auto",padding:"8px 12px 40px"}}>
         <div style={{textAlign:"center",padding:"28px 0 16px"}}>
           {endgameActive?(
@@ -3325,6 +3367,12 @@ function AwardsTab({films}){
 // ─── RULES ──────────────────
 function Rules({leagueCtx}){
   const l=leagueCtx||{};
+  const[shareMsg,setShareMsg]=useState(null);
+  async function copyShareLink(){
+    const url=`${window.location.origin}/league?id=${LEAGUE_UUID}&view=${l.share_token}`;
+    try{await navigator.clipboard.writeText(url); setShareMsg('Link copied');}
+    catch(e){ setShareMsg(null); }
+  }
   const budget=l.budget||500;
   const minBid=l.min_bid||10;
   const maxBid=l.max_bid?`$${l.max_bid}M`:'no maximum';
@@ -3347,6 +3395,17 @@ function Rules({leagueCtx}){
     ["lock","No changes after the draft — no redrafting at any point"],
   ];
   return(
+    <div style={{display:"flex",flexDirection:"column",gap:12}}>
+      {!IS_LEGACY&&l.is_public&&l.share_token&&
+        <div style={{background:"#111119",border:"1px solid #222233",borderRadius:10,padding:"16px 14px"}}>
+          <div style={{fontSize:12,fontWeight:700,color:"#d4a843",letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:10}}>Share This League</div>
+          <div style={{fontSize:12,color:"#6a6a7e",marginBottom:12}}>Send this link to friends — anyone can view standings, calendar, and rules with no account needed.</div>
+          <div style={{display:"flex",alignItems:"center",gap:12,background:"#1a1a28",borderRadius:7,padding:"14px 16px"}}>
+            <div style={{fontFamily:"monospace",fontSize:13,color:"#d4a843",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{window.location.origin}/league?id={LEAGUE_UUID}&view={l.share_token}</div>
+            <button onClick={copyShareLink} style={{padding:"6px 12px",borderRadius:5,border:"1px solid #222233",background:"transparent",color:"#6a6a7e",fontSize:11,cursor:"pointer",fontFamily:"monospace",flexShrink:0}}>{shareMsg||"Copy"}</button>
+          </div>
+        </div>
+      }
     <div style={{background:"#111119",border:"1px solid #222233",borderRadius:10,padding:"16px 14px"}}>
       <div style={{fontSize:16,fontWeight:900,color:"#d4a843",letterSpacing:"0.06em",marginBottom:14}}>GAME RULES</div>
       {rules.map(([icon,text],i)=>(
@@ -3367,6 +3426,7 @@ function Rules({leagueCtx}){
           <span>{text}</span>
         </div>
       ))}
+    </div>
     </div>
   );
 }
@@ -3431,6 +3491,60 @@ function ManageTab({leagueContext, members, userMembership}){
   async function copyInviteCode(){
     const inviteUrl=`${window.location.origin}/join?code=${l.invite_code}`;
     try{await navigator.clipboard.writeText(inviteUrl);}catch(e){}
+  }
+
+  // ── Public view-only link ──────────────────────────────────────────────
+  const[isPublic,setIsPublic]=React.useState(!!l.is_public);
+  const[shareToken,setShareToken]=React.useState(l.share_token||null);
+  const[publicSaving,setPublicSaving]=React.useState(false);
+  const[publicMsg,setPublicMsg]=React.useState(null);
+
+  function generateShareToken(){
+    const bytes=new Uint8Array(9);
+    crypto.getRandomValues(bytes);
+    return Array.from(bytes).map(b=>b.toString(16).padStart(2,'0')).join('');
+  }
+
+  async function patchLeaguePublic(payload){
+    const session=getSession();
+    return fetch(`${SUPABASE_URL}/rest/v1/leagues?id=eq.${LEAGUE_UUID}`,{
+      method:'PATCH',
+      headers:{'apikey':SUPABASE_ANON_KEY,'Authorization':`Bearer ${session?.access_token||SUPABASE_ANON_KEY}`,'Content-Type':'application/json','Prefer':'return=minimal'},
+      body:JSON.stringify(payload)
+    });
+  }
+
+  async function togglePublicView(){
+    setPublicSaving(true); setPublicMsg(null);
+    const newVal=!isPublic;
+    const token=shareToken||generateShareToken();
+    const res=await patchLeaguePublic({is_public:newVal, share_token:token});
+    setPublicSaving(false);
+    if(res.ok){
+      setIsPublic(newVal);
+      setShareToken(token);
+      setPublicMsg({text:newVal?'Public view enabled.':'Public view disabled — the old link stops working immediately.',error:false});
+    } else {
+      setPublicMsg({text:"Couldn't update — has the public-view database migration been run yet?",error:true});
+    }
+  }
+
+  async function regenerateShareToken(){
+    setPublicSaving(true); setPublicMsg(null);
+    const token=generateShareToken();
+    const res=await patchLeaguePublic({share_token:token});
+    setPublicSaving(false);
+    if(res.ok){
+      setShareToken(token);
+      setPublicMsg({text:'Link regenerated — the old link no longer works.',error:false});
+    } else {
+      setPublicMsg({text:'Failed to regenerate the link.',error:true});
+    }
+  }
+
+  async function copyPublicLink(){
+    const url=`${window.location.origin}/league?id=${LEAGUE_UUID}&view=${shareToken}`;
+    try{await navigator.clipboard.writeText(url); setPublicMsg({text:'Link copied.',error:false});}catch(e){}
   }
 
   const inp={width:'100%',padding:'8px 10px',background:'#1a1a28',border:'1px solid #222233',borderRadius:6,color:'#e8e8f0',fontSize:13,fontFamily:"'Helvetica Neue',sans-serif",outline:'none',boxSizing:'border-box'};
@@ -3541,6 +3655,26 @@ function ManageTab({leagueContext, members, userMembership}){
           <div style={{fontFamily:'monospace',fontSize:13,color:'#d4a843',flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{window.location.origin}/join?code={l.invite_code||'—'}</div>
           <button onClick={copyInviteCode} style={{padding:'6px 12px',borderRadius:5,border:'1px solid #222233',background:'transparent',color:'#6a6a7e',fontSize:11,cursor:'pointer',fontFamily:'monospace',flexShrink:0}}>Copy</button>
         </div>
+      </div>
+
+      {/* Public View Link */}
+      <div style={{background:'#111119',border:'1px solid #222233',borderRadius:10,padding:'16px 14px'}}>
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:4}}>
+          <div style={{fontSize:12,fontWeight:700,color:'#d4a843',letterSpacing:'0.08em',textTransform:'uppercase'}}>Public View Link</div>
+          <button onClick={togglePublicView} disabled={publicSaving}
+            style={{width:40,height:22,borderRadius:11,border:'none',background:isPublic?'#34d399':'#3a3a50',cursor:'pointer',position:'relative',transition:'background 0.2s',flexShrink:0,opacity:publicSaving?0.6:1}}>
+            <div style={{width:16,height:16,borderRadius:'50%',background:'#fff',position:'absolute',top:3,left:isPublic?20:3,transition:'left 0.2s'}}/>
+          </button>
+        </div>
+        <div style={{fontSize:12,color:'#6a6a7e',marginBottom:12}}>
+          Anyone with this link can view standings, calendar, and rules — no account needed. They can't join, submit picks, or see Manage/Settings.
+        </div>
+        {publicMsg&&<div style={{padding:'8px 12px',borderRadius:6,fontSize:12,marginBottom:12,background:publicMsg.error?'rgba(239,68,68,0.08)':'rgba(52,211,153,0.08)',border:`1px solid ${publicMsg.error?'rgba(239,68,68,0.2)':'rgba(52,211,153,0.2)'}`,color:publicMsg.error?'#ef4444':'#34d399'}}>{publicMsg.text}</div>}
+        {isPublic&&shareToken&&<div style={{display:'flex',alignItems:'center',gap:12,background:'#1a1a28',borderRadius:7,padding:'14px 16px'}}>
+          <div style={{fontFamily:'monospace',fontSize:13,color:'#d4a843',flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{window.location.origin}/league?id={LEAGUE_UUID}&view={shareToken}</div>
+          <button onClick={copyPublicLink} style={{padding:'6px 12px',borderRadius:5,border:'1px solid #222233',background:'transparent',color:'#6a6a7e',fontSize:11,cursor:'pointer',fontFamily:'monospace',flexShrink:0}}>Copy</button>
+          <button onClick={regenerateShareToken} disabled={publicSaving} style={{padding:'6px 12px',borderRadius:5,border:'1px solid #222233',background:'transparent',color:'#6a6a7e',fontSize:11,cursor:'pointer',fontFamily:'monospace',flexShrink:0}}>Regenerate</button>
+        </div>}
       </div>
 
     </div>
@@ -3738,10 +3872,14 @@ function SettingsPanel({membership, leagueCtx, onClose}){
 (async function boot(){
   if (!IS_LEGACY) {
     const valid = await ensureValidSession();
-    if (!valid) { window.location.href = '/'; return; }
-    // Keep the access token fresh in the background for as long as this tab
-    // stays open, so a long-idle tab doesn't start silently failing requests.
-    setInterval(ensureValidSession, 4 * 60 * 1000);
+    if (valid) {
+      // Keep the access token fresh in the background for as long as this tab
+      // stays open, so a long-idle tab doesn't start silently failing requests.
+      setInterval(ensureValidSession, 4 * 60 * 1000);
+    } else {
+      PUBLIC_VIEW_MODE = await verifyPublicView();
+      if (!PUBLIC_VIEW_MODE) { window.location.href = '/'; return; }
+    }
   }
   ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App));
 })();
