@@ -1260,11 +1260,11 @@ function App(){
       {/* League nav header - shown for all UUID-based leagues */}
       {!IS_LEGACY&&<div style={{position:"sticky",top:0,zIndex:50,height:52,padding:"0 16px",display:"flex",alignItems:"center",justifyContent:"space-between",background:"rgba(8,8,13,0.95)",backdropFilter:"blur(12px)",borderBottom:"1px solid #222233"}}>
         <div style={{display:"flex",alignItems:"center",gap:12,minWidth:0}}>
-          <a href="/dashboard" style={{display:"flex",alignItems:"center",gap:6,fontFamily:"monospace",fontSize:13,color:"#6a6a7e",textDecoration:"none",flexShrink:0,transition:"color 0.15s"}}
+          <a href={PUBLIC_VIEW_MODE?"/":"/dashboard"} style={{display:"flex",alignItems:"center",gap:6,fontFamily:"monospace",fontSize:13,color:"#6a6a7e",textDecoration:"none",flexShrink:0,transition:"color 0.15s"}}
             onMouseEnter={e=>e.currentTarget.style.color="#e8e8f0"}
             onMouseLeave={e=>e.currentTarget.style.color="#6a6a7e"}>
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M9 2L4 7l5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
-            My Leagues
+            {PUBLIC_VIEW_MODE?"Home":"My Leagues"}
           </a>
           <span style={{color:"#222233",fontSize:16,flexShrink:0}}>/</span>
           <span style={{fontSize:13,fontWeight:600,color:"#e8e8f0",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{leagueCtx?.name||"League"}</span>
@@ -3367,6 +3367,12 @@ function AwardsTab({films}){
 // ─── RULES ──────────────────
 function Rules({leagueCtx}){
   const l=leagueCtx||{};
+  const[shareMsg,setShareMsg]=useState(null);
+  async function copyShareLink(){
+    const url=`${window.location.origin}/league?id=${LEAGUE_UUID}&view=${l.share_token}`;
+    try{await navigator.clipboard.writeText(url); setShareMsg('Link copied');}
+    catch(e){ setShareMsg(null); }
+  }
   const budget=l.budget||500;
   const minBid=l.min_bid||10;
   const maxBid=l.max_bid?`$${l.max_bid}M`:'no maximum';
@@ -3389,6 +3395,17 @@ function Rules({leagueCtx}){
     ["lock","No changes after the draft — no redrafting at any point"],
   ];
   return(
+    <div style={{display:"flex",flexDirection:"column",gap:12}}>
+      {!IS_LEGACY&&l.is_public&&l.share_token&&
+        <div style={{background:"#111119",border:"1px solid #222233",borderRadius:10,padding:"16px 14px"}}>
+          <div style={{fontSize:12,fontWeight:700,color:"#d4a843",letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:10}}>Share This League</div>
+          <div style={{fontSize:12,color:"#6a6a7e",marginBottom:12}}>Send this link to friends — anyone can view standings, calendar, and rules with no account needed.</div>
+          <div style={{display:"flex",alignItems:"center",gap:12,background:"#1a1a28",borderRadius:7,padding:"14px 16px"}}>
+            <div style={{fontFamily:"monospace",fontSize:13,color:"#d4a843",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{window.location.origin}/league?id={LEAGUE_UUID}&view={l.share_token}</div>
+            <button onClick={copyShareLink} style={{padding:"6px 12px",borderRadius:5,border:"1px solid #222233",background:"transparent",color:"#6a6a7e",fontSize:11,cursor:"pointer",fontFamily:"monospace",flexShrink:0}}>{shareMsg||"Copy"}</button>
+          </div>
+        </div>
+      }
     <div style={{background:"#111119",border:"1px solid #222233",borderRadius:10,padding:"16px 14px"}}>
       <div style={{fontSize:16,fontWeight:900,color:"#d4a843",letterSpacing:"0.06em",marginBottom:14}}>GAME RULES</div>
       {rules.map(([icon,text],i)=>(
@@ -3409,6 +3426,7 @@ function Rules({leagueCtx}){
           <span>{text}</span>
         </div>
       ))}
+    </div>
     </div>
   );
 }
