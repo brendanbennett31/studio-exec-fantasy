@@ -157,6 +157,12 @@ header{position:sticky;top:0;z-index:50;height:60px;padding:0 32px;display:flex;
   header{padding:0 16px}
   .form-row{grid-template-columns:1fr}
   .profile-card{flex-direction:column;align-items:flex-start}
+  /* Buttons stack full-width instead of shrinking below their own text —
+     the previous flex:1/min-width:80px let "View League ->" etc. shrink
+     narrower than its nowrap text, which then got clipped by the card's
+     overflow:hidden. */
+  .league-card-actions{flex-direction:column}
+  .league-card-actions .btn{flex:none;width:100%;min-width:0}
 }
 </style>
 </head>
