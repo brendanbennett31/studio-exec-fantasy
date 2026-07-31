@@ -1,0 +1,27 @@
+-- Confirmed (non-destructively) that anon can currently UPDATE any row in
+-- `profiles` -- a PATCH with a made-up id returned a clean 204 instead of
+-- the RLS-denial error every other write path on this project returns,
+-- meaning some permissive grant/policy lets the write through regardless of
+-- RLS. That would let an unauthenticated request flip any user's is_admin,
+-- or edit their display name/email, via a direct API call.
+--
+-- The app never writes to `profiles` via REST at all -- confirmed by
+-- grepping every .html file: the only rest/v1/profiles calls are read-only
+-- (select=* by id, used by dashboard.html/league.html/universe.html to load
+-- the signed-in user's own profile). Profile edits (display name, email,
+-- password) all go through Supabase Auth's /auth/v1/user endpoint, which
+-- syncs into `profiles` via its own trigger, bypassing RLS as the trigger
+-- owner. So the fix is to remove REST write access entirely rather than try
+-- to carve out a narrow "users can edit their own row but not is_admin"
+-- policy -- that surface isn't needed and is exactly what allowed this.
+--
+-- This alone is sufficient regardless of whatever RLS policy is currently
+-- misconfigured: Postgres requires both a table-level grant AND a passing
+-- RLS policy for a write to succeed, so revoking the grant closes the hole
+-- even without knowing the existing policy's name -- the same lesson
+-- learned the hard way fixing the `leagues` table (migration 006).
+--
+-- SELECT is untouched -- self-read (id=eq.<own id>) keeps working exactly
+-- as it does today.
+
+revoke insert, update, delete on profiles from anon, authenticated;
