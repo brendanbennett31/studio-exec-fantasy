@@ -620,14 +620,16 @@ function openAddFilmModal() {
 }
 
 // Normalizes a title for fuzzy duplicate matching: lowercase, strip a
-// leading "the"/"a"/"an", strip punctuation, collapse whitespace. Same
-// approach league.html's BiggestMisses feature uses to match slate titles
-// against the universe CSV.
+// leading "the"/"a"/"an", treat any run of non-alphanumeric characters
+// (punctuation, hyphens, etc.) as a single space rather than deleting it --
+// otherwise "Focker-In-Law" collapses to "fockerinlaw" while "Focker in
+// Law" stays "focker in law", and two entries for the same film don't
+// match. Same approach league.html's BiggestMisses feature uses to match
+// slate titles against the universe CSV.
 function normTitle(t) {
   return (t||'').toLowerCase()
     .replace(/^(the |a |an )/, '')
-    .replace(/[^a-z0-9 ]/g, '')
-    .replace(/\s+/g, ' ')
+    .replace(/[^a-z0-9]+/g, ' ')
     .trim();
 }
 
