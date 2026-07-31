@@ -175,14 +175,18 @@ const URL_PARAMS = new URLSearchParams(window.location.search);
 const LEAGUE_UUID = URL_PARAMS.get('id') || null;
 const PUBLIC_VIEW_TOKEN = URL_PARAMS.get('view') || null;
 
-// Maps league UUIDs to their legacy text-based league_id in the picks/snapshots tables.
-// Add new entries here as more seasons are created with legacy data.
+// Maps league UUIDs to their legacy text-based league_id, still used ONLY by
+// weekly_bo_snapshots/weekly_poi_snapshots/daily_bo (those are unaffected by
+// the league_picks/universe_films migration -- centralizing them is a
+// separate, not-yet-done follow-up). The actual film slate now comes from
+// league_picks, keyed by LEAGUE_UUID directly -- see the IS_LEGACY branch
+// in the data-loading useEffect below.
 const LEGACY_ID_MAP = {
   'c388b799-6240-46c4-ba75-da8a0d2e8db5': 'sef-2026',
 };
 
-// If this UUID has a legacy mapping, use that for all Supabase data queries.
-// Otherwise use the UUID itself (for new leagues using league_picks table).
+// If this UUID has a legacy mapping, use that for weekly/daily snapshot
+// queries. Otherwise use the UUID itself.
 const LEAGUE_ID = LEAGUE_UUID ? (LEGACY_ID_MAP[LEAGUE_UUID] || LEAGUE_UUID) : 'sef-2026';
 const IS_LEGACY = !LEAGUE_UUID;
 
@@ -1065,48 +1069,95 @@ function App(){
       if(USER_MEMBERSHIP) setMembership(USER_MEMBERSHIP);
       if(LEAGUE_MEMBERS.length) setLeagueMembers(LEAGUE_MEMBERS);
 
-      // ── 1. Main slate — from Supabase picks table ────────────────────────
+      // ── 1. Main slate ─────────────────────────────────────────────────────
       let slateLoaded=false;
-      try{
-        const rows = await supabaseFetch("picks", `league_id=eq.${LEAGUE_ID}&order=release_date.asc.nullslast`);
-        console.log("[supabase] picks rows:", rows.length);
-        if(rows.length>0){
-          const films = rows.map(r=>({
-            title:    r.title,
-            bid:      Number(r.bid),
-            bo:       Number(r.bo),
-            team:     r.team,
-            release:  r.release_date || null,
-            status:   r.status || (r.release_date ? "upcoming" : "tba"),
-            locked:   !!r.locked,
-            voided:   !!r.voided,
-            opening:  Number(r.opening_weekend||0),
-            bom_id:   r.bom_release_id||null,
-            imdb_id:  r.imdb_id||null,
-          }));
-          setFilms(films);
-          setLiveStatus("live");
-          slateLoaded=true;
-          console.log("[supabase] slate loaded successfully");
-        }
-      } catch(e){
-        console.error("[supabase] picks fetch error:", e.message);
-        for(let attempt=0;attempt<2;attempt++){
-          try{
-            const res=await fetch(SHEET_CSV_URL);
-            const text=await res.text();
-            const rows=parseCSV(text);
-            const result=processCSV(rows);
-            if(result.films.length>0){
-              setFilms(result.films);
-              setStudioNames(result.studioNames);
-              setLiveStatus("live");
-              slateLoaded=true;
-              break;
-            }
-          }catch(e2){
-            if(attempt===0) await new Promise(r=>setTimeout(r,1500));
+      if(IS_LEGACY){
+        // Bare /league.html with no ?id= at all -- deliberately untouched by
+        // the league_picks/universe_films migration. Still reads picks
+        // directly, same CSV fallback as always.
+        try{
+          const rows = await supabaseFetch("picks", `league_id=eq.${LEAGUE_ID}&order=release_date.asc.nullslast`);
+          console.log("[supabase] picks rows:", rows.length);
+          if(rows.length>0){
+            const films = rows.map(r=>({
+              title:    r.title,
+              bid:      Number(r.bid),
+              bo:       Number(r.bo),
+              team:     r.team,
+              release:  r.release_date || null,
+              status:   r.status || (r.release_date ? "upcoming" : "tba"),
+              locked:   !!r.locked,
+              voided:   !!r.voided,
+              opening:  Number(r.opening_weekend||0),
+              bom_id:   r.bom_release_id||null,
+              imdb_id:  r.imdb_id||null,
+            }));
+            setFilms(films);
+            setLiveStatus("live");
+            slateLoaded=true;
+            console.log("[supabase] slate loaded successfully");
           }
+        } catch(e){
+          console.error("[supabase] picks fetch error:", e.message);
+          for(let attempt=0;attempt<2;attempt++){
+            try{
+              const res=await fetch(SHEET_CSV_URL);
+              const text=await res.text();
+              const rows=parseCSV(text);
+              const result=processCSV(rows);
+              if(result.films.length>0){
+                setFilms(result.films);
+                setStudioNames(result.studioNames);
+                setLiveStatus("live");
+                slateLoaded=true;
+                break;
+              }
+            }catch(e2){
+              if(attempt===0) await new Promise(r=>setTimeout(r,1500));
+            }
+          }
+        }
+      } else {
+        // Every real league (including sef-2026's own ?id=c388b799... URL) --
+        // film slate + box office now come from league_picks joined against
+        // universe_films, so 20 leagues drafting the same film share one
+        // scraped bo value instead of 20 independent copies.
+        try{
+          const rows = await supabaseFetch("league_picks",
+            `league_id=eq.${LEAGUE_UUID}&select=*,universe_films(title,release_date,bo,opening_weekend,locked,imdb_id)`
+          );
+          console.log("[supabase] league_picks rows:", rows.length);
+          if(rows.length>0){
+            const films = rows.map(r=>{
+              const uf = r.universe_films || null; // null for a Festival Futures placeholder pick
+              const release = uf?.release_date || r.release_date || null;
+              return {
+                title:    uf?.title || r.title,
+                bid:      Number(r.bid),
+                bo:       Number(uf?.bo || 0),
+                team:     r.team_name,
+                release:  release,
+                status:   !release ? "tba" : (new Date(release) <= new Date() ? "released" : "upcoming"),
+                locked:   !!uf?.locked,
+                voided:   !!r.voided,
+                opening:  Number(uf?.opening_weekend || 0),
+                bom_id:   uf?.bom_release_id || null,
+                imdb_id:  r.imdb_id || null,
+              };
+            }).sort((a,b)=>{
+              // PostgREST can't order by an embedded column, so sort client-side
+              if(!a.release && !b.release) return 0;
+              if(!a.release) return 1;
+              if(!b.release) return -1;
+              return new Date(a.release) - new Date(b.release);
+            });
+            setFilms(films);
+            setLiveStatus("live");
+            slateLoaded=true;
+            console.log("[supabase] slate loaded successfully");
+          }
+        } catch(e){
+          console.error("[supabase] league_picks fetch error:", e.message);
         }
       }
       if(!slateLoaded) setLiveStatus("fallback");
@@ -3551,6 +3602,105 @@ function ManageTab({leagueContext, members, userMembership}){
     try{await navigator.clipboard.writeText(url); setPublicMsg({text:'Link copied.',error:false});}catch(e){}
   }
 
+  // ── Add Picks (draft entry, sourced from the Universe list) ────────────
+  const[picksOpen,setPicksOpen]=React.useState(false);
+  const[picksLoading,setPicksLoading]=React.useState(false);
+  const[picksLoadError,setPicksLoadError]=React.useState(null);
+  const[universeFilms,setUniverseFilms]=React.useState([]);
+  const[picksList,setPicksList]=React.useState([]);
+  const[pickSearch,setPickSearch]=React.useState('');
+  const[isPlaceholder,setIsPlaceholder]=React.useState(false);
+  const[selectedFilm,setSelectedFilm]=React.useState(null);
+  const[customTitle,setCustomTitle]=React.useState('');
+  const[customRelease,setCustomRelease]=React.useState('');
+  const[pickTeam,setPickTeam]=React.useState(members[0]?.team_name||'');
+  const[pickBid,setPickBid]=React.useState('');
+  const[pickSaving,setPickSaving]=React.useState(false);
+  const[pickMsg,setPickMsg]=React.useState(null);
+
+  // Same normalization as universe.html's normTitle() -- this repo has no
+  // shared-module mechanism (every .html file is self-contained), so this
+  // one small pure function is intentionally duplicated rather than adding
+  // build/bundling infrastructure just to share it.
+  function normTitle(t){
+    return (t||'').toLowerCase()
+      .replace(/^(the |a |an )/, '')
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim();
+  }
+
+  async function loadUniverseAndPicks(){
+    setPicksLoading(true); setPicksLoadError(null);
+    try{
+      const [uf, lp] = await Promise.all([
+        supabaseFetch("universe_films", "select=id,title,imdb_id,release_date&order=release_date.asc.nullslast"),
+        supabaseFetch("league_picks", `league_id=eq.${LEAGUE_UUID}&select=*,universe_films(title)`),
+      ]);
+      setUniverseFilms(uf||[]);
+      setPicksList(lp||[]);
+    } catch(e){
+      console.error("[league_picks] failed to load:", e.message);
+      setPicksLoadError("Couldn't load — has the league_picks migration been run yet?");
+    }
+    setPicksLoading(false);
+  }
+
+  function openPicksSection(){
+    setPicksOpen(true);
+    if(universeFilms.length===0) loadUniverseAndPicks();
+  }
+
+  function getVisiblePickCandidates(){
+    const already=new Set(picksList.filter(p=>p.imdb_id).map(p=>p.imdb_id));
+    let list=universeFilms.filter(f=>!already.has(f.imdb_id));
+    if(pickSearch.trim()){
+      const normed=normTitle(pickSearch);
+      list=list.filter(f=>normTitle(f.title).includes(normed));
+    }
+    return list.slice(0,50);
+  }
+
+  async function savePick(){
+    setPickMsg(null);
+    if(!pickTeam){ setPickMsg({text:'Pick a team.',error:true}); return; }
+    const bidNum=Number(pickBid);
+    if(!pickBid || isNaN(bidNum) || bidNum<=0){ setPickMsg({text:'Enter a valid bid.',error:true}); return; }
+
+    let payload;
+    if(isPlaceholder){
+      if(!customTitle.trim()){ setPickMsg({text:'Placeholder picks need a title.',error:true}); return; }
+      payload={ league_id:LEAGUE_UUID, imdb_id:null, team_name:pickTeam, bid:bidNum, title:customTitle.trim(), release_date:customRelease||null };
+    } else {
+      if(!selectedFilm){ setPickMsg({text:'Pick a film first.',error:true}); return; }
+      payload={ league_id:LEAGUE_UUID, imdb_id:selectedFilm.imdb_id, team_name:pickTeam, bid:bidNum };
+    }
+
+    setPickSaving(true);
+    const session=getSession();
+    const res=await fetch(`${SUPABASE_URL}/rest/v1/league_picks`,{
+      method:'POST',
+      headers:{'apikey':SUPABASE_ANON_KEY,'Authorization':`Bearer ${session?.access_token||SUPABASE_ANON_KEY}`,'Content-Type':'application/json','Prefer':'return=minimal'},
+      body:JSON.stringify(payload)
+    });
+    setPickSaving(false);
+    if(res.ok){
+      setPickMsg({text:'Pick added. Reload the page to see it reflected in Standings/Calendar.',error:false});
+      setSelectedFilm(null); setPickSearch(''); setCustomTitle(''); setCustomRelease(''); setPickBid('');
+      loadUniverseAndPicks();
+    } else {
+      setPickMsg({text:"Failed to save — has the league_picks migration been run yet?",error:true});
+    }
+  }
+
+  async function deletePick(id){
+    const session=getSession();
+    const res=await fetch(`${SUPABASE_URL}/rest/v1/league_picks?id=eq.${id}`,{
+      method:'DELETE',
+      headers:{'apikey':SUPABASE_ANON_KEY,'Authorization':`Bearer ${session?.access_token||SUPABASE_ANON_KEY}`}
+    });
+    if(res.ok) setPicksList(pl=>pl.filter(p=>p.id!==id));
+  }
+
   const inp={width:'100%',padding:'8px 10px',background:'#1a1a28',border:'1px solid #222233',borderRadius:6,color:'#e8e8f0',fontSize:13,fontFamily:"'Helvetica Neue',sans-serif",outline:'none',boxSizing:'border-box'};
 
   return(
@@ -3570,6 +3720,83 @@ function ManageTab({leagueContext, members, userMembership}){
             {draftStatus==='open'?'Lock Draft':'Reopen Draft'}
           </button>
         </div>
+      </div>
+
+      {/* Add Picks */}
+      <div style={{background:'#111119',border:'1px solid #222233',borderRadius:10,padding:'16px 14px'}}>
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:picksOpen?14:0}}>
+          <div style={{fontSize:12,fontWeight:700,color:'#d4a843',letterSpacing:'0.08em',textTransform:'uppercase'}}>Add Picks</div>
+          {!picksOpen&&<button onClick={openPicksSection} style={{padding:'5px 14px',borderRadius:6,border:'1px solid #222233',background:'transparent',color:'#6a6a7e',fontSize:11,fontWeight:600,cursor:'pointer'}}>Manage Picks</button>}
+        </div>
+        {picksOpen&&<>
+          <div style={{fontSize:12,color:'#6a6a7e',marginBottom:14}}>Draft films from the Universe list, or add a Festival Futures placeholder for a not-yet-announced winner.</div>
+          {picksLoading?(
+            <div style={{fontSize:12,color:'#6a6a7e'}}>Loading…</div>
+          ):picksLoadError?(
+            <div style={{padding:'8px 12px',borderRadius:6,fontSize:12,background:'rgba(239,68,68,0.08)',border:'1px solid rgba(239,68,68,0.2)',color:'#ef4444'}}>{picksLoadError}</div>
+          ):(<>
+            <div style={{display:'flex',alignItems:'center',gap:10,padding:'8px 0',marginBottom:10}}>
+              <label style={{fontSize:13,color:'#e8e8f0',flex:1}}>{isPlaceholder?'Festival Futures Placeholder':'Real Film'}</label>
+              <button onClick={()=>{setIsPlaceholder(p=>!p);setSelectedFilm(null);setPickSearch('');}}
+                style={{width:40,height:22,borderRadius:11,border:'none',background:isPlaceholder?'#34d399':'#3a3a50',cursor:'pointer',position:'relative',transition:'background 0.2s',flexShrink:0}}>
+                <div style={{width:16,height:16,borderRadius:'50%',background:'#fff',position:'absolute',top:3,left:isPlaceholder?20:3,transition:'left 0.2s'}}/>
+              </button>
+            </div>
+
+            {!isPlaceholder?(
+              <div style={{marginBottom:10}}>
+                <input style={inp} placeholder="Search Universe films…" value={pickSearch} onChange={e=>{setPickSearch(e.target.value);setSelectedFilm(null);}}/>
+                {pickSearch.trim()&&!selectedFilm&&(
+                  <div style={{maxHeight:160,overflowY:'auto',marginTop:6,background:'#1a1a28',borderRadius:6,border:'1px solid #222233'}}>
+                    {getVisiblePickCandidates().map(f=>(
+                      <div key={f.id} onClick={()=>{setSelectedFilm(f);setPickSearch(f.title);}}
+                        style={{padding:'8px 12px',fontSize:13,color:'#e8e8f0',cursor:'pointer',borderBottom:'1px solid #222233'}}
+                        onMouseEnter={e=>e.currentTarget.style.background='#222233'}
+                        onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                        {f.title} <span style={{color:'#6a6a7e',fontSize:11}}>{f.release_date||'no date yet'}</span>
+                      </div>
+                    ))}
+                    {getVisiblePickCandidates().length===0&&<div style={{padding:'8px 12px',fontSize:12,color:'#6a6a7e'}}>No matches (or already drafted in this league).</div>}
+                  </div>
+                )}
+                {selectedFilm&&<div style={{fontSize:11,color:'#34d399',marginTop:4}}>Selected: {selectedFilm.title}</div>}
+              </div>
+            ):(
+              <div style={{display:'grid',gridTemplateColumns:'2fr 1fr',gap:10,marginBottom:10}}>
+                <input style={inp} placeholder="e.g. Palme d'Or Winner" value={customTitle} onChange={e=>setCustomTitle(e.target.value)}/>
+                <input style={inp} type="date" value={customRelease} onChange={e=>setCustomRelease(e.target.value)}/>
+              </div>
+            )}
+
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:10}}>
+              <select style={{...inp,cursor:'pointer'}} value={pickTeam} onChange={e=>setPickTeam(e.target.value)}>
+                {members.map(m=><option key={m.id} value={m.team_name}>{m.team_name}</option>)}
+              </select>
+              <input style={inp} type="number" placeholder="Bid ($M)" value={pickBid} onChange={e=>setPickBid(e.target.value)} min="0"/>
+            </div>
+
+            {pickMsg&&<div style={{padding:'8px 12px',borderRadius:6,fontSize:12,marginBottom:10,background:pickMsg.error?'rgba(239,68,68,0.08)':'rgba(52,211,153,0.08)',border:`1px solid ${pickMsg.error?'rgba(239,68,68,0.2)':'rgba(52,211,153,0.2)'}`,color:pickMsg.error?'#ef4444':'#34d399'}}>{pickMsg.text}</div>}
+
+            <button onClick={savePick} disabled={pickSaving} style={{padding:'8px 16px',borderRadius:7,border:'none',background:'#d4a843',color:'#0d0d14',fontSize:12,fontWeight:700,cursor:'pointer',opacity:pickSaving?0.7:1,marginBottom:16}}>
+              {pickSaving?'Saving...':'Add Pick'}
+            </button>
+
+            <div style={{fontSize:10,color:'#6a6a7e',textTransform:'uppercase',letterSpacing:'0.1em',marginBottom:8,borderTop:'1px solid #222233',paddingTop:14}}>Current Picks ({picksList.length})</div>
+            <div style={{display:'flex',flexDirection:'column',gap:4,maxHeight:220,overflowY:'auto'}}>
+              {picksList.map(p=>(
+                <div key={p.id} style={{display:'flex',alignItems:'center',gap:10,padding:'8px 10px',background:'#1a1a28',borderRadius:6}}>
+                  <div style={{flex:1,fontSize:12,color:'#e8e8f0'}}>{p.universe_films?.title||p.title||'—'}</div>
+                  <div style={{fontSize:11,color:'#6a6a7e',fontFamily:'monospace'}}>{p.team_name}</div>
+                  <div style={{fontSize:11,color:'#d4a843',fontFamily:'monospace'}}>${p.bid}M</div>
+                  <button onClick={()=>deletePick(p.id)} style={{background:'none',border:'none',color:'#6a6a7e',cursor:'pointer',padding:4}}>
+                    <svg width="12" height="12" viewBox="0 0 14 14" fill="none"><path d="M2.5 3.5h9M5.5 3.5V2a1 1 0 0 1 1-1h1a1 1 0 0 1 1 1v1.5M11 3.5l-.6 8.1a1 1 0 0 1-1 .9H4.6a1 1 0 0 1-1-.9L3 3.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                  </button>
+                </div>
+              ))}
+              {picksList.length===0&&<div style={{fontSize:12,color:'#6a6a7e'}}>No picks yet.</div>}
+            </div>
+          </>)}
+        </>}
       </div>
 
       {/* League Rules */}
