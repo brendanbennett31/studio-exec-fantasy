@@ -258,20 +258,6 @@ async function loadLeagueContext() {
         profile: { display_name: m.display_name }
       }));
     }
-    // Rebuild the exec identity (colors + display names) from this league's
-    // actual roster instead of leaving it as the original hardcoded 5-person
-    // cast — otherwise every new league would show BRANDON/RAFA/KAI/PATRICK/BB
-    // regardless of who's actually in it.
-    if (LEAGUE_MEMBERS.length) {
-      const newColors = {}, newDisplay = {};
-      LEAGUE_MEMBERS.forEach((m, i) => {
-        if (!m.team_name) return;
-        newColors[m.team_name] = TEAM_COLOR_PALETTE[i % TEAM_COLOR_PALETTE.length];
-        newDisplay[m.team_name] = m.team_name;
-      });
-      EXEC_COLORS = newColors;
-      DISPLAY = newDisplay;
-    }
     if (LEAGUE_CONTEXT) document.title = `${LEAGUE_CONTEXT.name} — Studio Exec Fantasy`;
   } catch(e) {
     console.warn("[league context] failed to load:", e.message);
@@ -1179,6 +1165,26 @@ function App(){
               if(!b.release) return -1;
               return new Date(a.release) - new Date(b.release);
             });
+            // Rebuild the exec roster (colors + display names) from the teams
+            // that actually appear in this league's picks -- NOT from
+            // league_members.team_name. Those two can legitimately differ: a
+            // migrated league's league_picks.team_name may still hold old
+            // team codes (e.g. "BRANDON") while league_members.team_name
+            // holds real account display names. Building the roster from
+            // league_members previously caused execs[f.team] to come back
+            // undefined for every film in such a league, crashing the render
+            // (blank page). A brand-new league naturally yields zero teams
+            // here since films is empty, which is the desired empty state.
+            const newColors = {}, newDisplay = {};
+            let colorIdx = 0;
+            films.forEach(f=>{
+              if(!f.team || newColors[f.team]) return;
+              newColors[f.team] = TEAM_COLOR_PALETTE[colorIdx % TEAM_COLOR_PALETTE.length];
+              newDisplay[f.team] = f.team;
+              colorIdx++;
+            });
+            EXEC_COLORS = newColors;
+            DISPLAY = newDisplay;
             setFilms(films);
             setLiveStatus("live");
             slateLoaded=true;
@@ -1245,7 +1251,7 @@ function App(){
   const data=useMemo(()=>{
     const execs={};
     Object.keys(EXEC_COLORS).forEach(t=>{execs[t]={name:t,films:[],totalSpent:0,totalBO:0,filmCount:0}});
-    films.forEach(f=>{const e=execs[f.team];e.films.push(f);e.totalSpent+=f.bid;e.totalBO+=f.bo;e.filmCount++});
+    films.forEach(f=>{const e=execs[f.team];if(!e)return;e.films.push(f);e.totalSpent+=f.bid;e.totalBO+=f.bo;e.filmCount++});
     Object.values(execs).forEach(e=>{
       e.remaining=REMAINDERS[e.name]?REMAINDERS[e.name].remaining:0;
       e.grandTotal=e.totalBO+e.remaining*1e6;
