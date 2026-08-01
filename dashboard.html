@@ -23,8 +23,8 @@
   --green:#34d399;
   --red:#ef4444;
 }
-html{scroll-behavior:smooth}
-body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;font-size:15px;line-height:1.6;min-height:100vh}
+html{scroll-behavior:smooth;color-scheme:dark}
+body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;font-size:15px;line-height:1.6;min-height:100vh;accent-color:var(--gold)}
 
 /* ── HEADER ── */
 header{position:sticky;top:0;z-index:50;height:60px;padding:0 32px;display:flex;align-items:center;justify-content:space-between;background:rgba(13,13,20,0.9);backdrop-filter:blur(12px);border-bottom:1px solid var(--border)}
@@ -113,6 +113,10 @@ header{position:sticky;top:0;z-index:50;height:60px;padding:0 32px;display:flex;
 .form-input::placeholder{color:var(--muted)}
 .form-input[type=number]{-moz-appearance:textfield}
 .form-section-label{font-size:10px;font-weight:600;letter-spacing:0.18em;text-transform:uppercase;color:var(--gold);margin:24px 0 14px;padding-bottom:8px;border-bottom:1px solid var(--border)}
+.settings-mode-toggle{display:flex;gap:6px;margin-top:20px;padding:4px;background:var(--bg3);border-radius:9px;border:1px solid var(--border)}
+.mode-tab{flex:1;padding:9px 12px;border:none;background:transparent;color:var(--muted);font-family:'Inter',sans-serif;font-size:13px;font-weight:600;border-radius:6px;cursor:pointer;transition:background 0.15s,color 0.15s;white-space:nowrap}
+.mode-tab.active{background:var(--gold);color:#0d0d14}
+.settings-fields.locked{opacity:0.5;pointer-events:none;user-select:none}
 .form-toggle-row{display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid rgba(34,34,51,0.5)}
 .form-toggle-row:last-child{border-bottom:none}
 .form-toggle-info{flex:1}
@@ -224,11 +228,11 @@ header{position:sticky;top:0;z-index:50;height:60px;padding:0 32px;display:flex;
         <input class="form-input" type="number" id="cl-players" value="5" min="2" max="20"/>
       </div>
     </div>
-    <div class="form-group">
-      <label class="form-label">Description <span class="form-label-hint">optional</span></label>
-      <input class="form-input" type="text" id="cl-description" placeholder="A short description for your league"/>
+    <div class="settings-mode-toggle">
+      <button type="button" class="mode-tab active" id="cl-mode-default-btn" onclick="setCreateLeagueMode('default')">Default Settings</button>
+      <button type="button" class="mode-tab" id="cl-mode-custom-btn" onclick="setCreateLeagueMode('custom')">Custom</button>
     </div>
-
+    <div class="settings-fields locked" id="cl-settings-fields">
     <div class="form-section-label">Budget Rules</div>
     <div class="form-row">
       <div class="form-group">
@@ -297,6 +301,7 @@ header{position:sticky;top:0;z-index:50;height:60px;padding:0 32px;display:flex;
         <label class="form-label">Season End Date <span class="form-label-hint">optional</span></label>
         <input class="form-input" type="date" id="cl-seasonend"/>
       </div>
+    </div>
     </div>
 
     <div class="form-error" id="createError"></div>
@@ -573,7 +578,7 @@ function renderDashboard() {
         <div class="section-title">My Leagues</div>
         <div style="display:flex;gap:8px">
           <button class="btn btn-secondary btn-sm" onclick="openModal('joinModal')">+ Join with Code</button>
-          <button class="btn btn-primary btn-sm" onclick="openModal('createModal')">+ New League</button>
+          <button class="btn btn-primary btn-sm" onclick="openModal('createModal');setCreateLeagueMode('default')">+ New League</button>
         </div>
       </div>
       ${renderLeagues()}
@@ -591,7 +596,7 @@ function renderLeagues() {
         <h3>No leagues yet</h3>
         <p>Create a new league and invite your friends, or join an existing league with an invite code.</p>
         <div class="empty-state-actions">
-          <button class="btn btn-primary" onclick="openModal('createModal')">Create a League</button>
+          <button class="btn btn-primary" onclick="openModal('createModal');setCreateLeagueMode('default')">Create a League</button>
           <button class="btn btn-secondary" onclick="openModal('joinModal')">Join with Invite Code</button>
         </div>
       </div>
@@ -678,7 +683,6 @@ async function handleCreateLeague() {
   const draftOpen = document.getElementById('cl-draftopen').value || null;
   const draftClose = document.getElementById('cl-draftclose').value || null;
   const seasonEnd = document.getElementById('cl-seasonend').value || null;
-  const description = document.getElementById('cl-description').value.trim() || null;
 
   if (!name) {
     errEl.textContent = 'Please give your league a name.';
@@ -714,7 +718,6 @@ async function handleCreateLeague() {
       draft_open_date: draftOpen,
       draft_close_date: draftClose,
       season_end_date: seasonEnd,
-      description,
       created_by: userId,
       draft_status: 'open'
     })
@@ -973,6 +976,24 @@ function openModal(id) {
 function closeModal(id) {
   document.getElementById(id).classList.remove('open');
   document.body.style.overflow = '';
+}
+function setCreateLeagueMode(mode) {
+  document.getElementById('cl-mode-default-btn').classList.toggle('active', mode === 'default');
+  document.getElementById('cl-mode-custom-btn').classList.toggle('active', mode === 'custom');
+  document.getElementById('cl-settings-fields').classList.toggle('locked', mode === 'default');
+  if (mode === 'default') {
+    document.getElementById('cl-budget').value = 500;
+    document.getElementById('cl-minbid').value = 10;
+    document.getElementById('cl-maxbid').value = 0;
+    document.getElementById('cl-nom').value = 25;
+    document.getElementById('cl-win').value = 25;
+    document.getElementById('cl-bp').value = 50;
+    document.getElementById('cl-festival').checked = true;
+    document.getElementById('cl-public').checked = false;
+    document.getElementById('cl-draftopen').value = '';
+    document.getElementById('cl-draftclose').value = '';
+    document.getElementById('cl-seasonend').value = '';
+  }
 }
 function handleOverlayClick(e, id) {
   if (e.target === document.getElementById(id)) closeModal(id);

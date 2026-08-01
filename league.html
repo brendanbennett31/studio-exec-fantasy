@@ -13,7 +13,8 @@
 <link rel="manifest" href="manifest.json">
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{background:#08080d;color:#e8e8f0;font-family:'Helvetica Neue',-apple-system,BlinkMacSystemFont,sans-serif;-webkit-font-smoothing:antialiased;transition:background 0.5s ease, filter 0.5s ease}
+html{color-scheme:dark}
+body{background:#08080d;color:#e8e8f0;font-family:'Helvetica Neue',-apple-system,BlinkMacSystemFont,sans-serif;-webkit-font-smoothing:antialiased;transition:background 0.5s ease, filter 0.5s ease;accent-color:#d4a843}
 body.endgame{background:#1a0608;color:#f5e6c8}
 
 /* Apply warm sepia-toned filter to retint all dark surfaces toward red carpet.
@@ -234,7 +235,7 @@ async function loadLeagueContext() {
     // created_by, so their leagues lookup asks for a narrower column set —
     // this is app-level hygiene, not the security boundary (RLS is).
     const leagueSelect = PUBLIC_VIEW_MODE
-      ? "id,name,season,budget,draft_status,num_players,min_bid,max_bid,oscar_nom_bonus,oscar_win_bonus,bp_bonus,festival_picks,draft_open_date,draft_close_date,season_end_date,description,is_public,sacko_punishment"
+      ? "id,name,season,budget,draft_status,num_players,min_bid,max_bid,oscar_nom_bonus,oscar_win_bonus,bp_bonus,festival_picks,draft_open_date,draft_close_date,season_end_date,is_public,sacko_punishment"
       : "*";
     const leagues = await supabaseFetch("leagues", `id=eq.${LEAGUE_UUID}&select=${leagueSelect}`);
     if (leagues.length) LEAGUE_CONTEXT = leagues[0];
@@ -257,6 +258,20 @@ async function loadLeagueContext() {
         profile: { display_name: m.display_name }
       }));
     }
+    // Rebuild the exec identity (colors + display names) from this league's
+    // actual roster instead of leaving it as the original hardcoded 5-person
+    // cast — otherwise every new league would show BRANDON/RAFA/KAI/PATRICK/BB
+    // regardless of who's actually in it.
+    if (LEAGUE_MEMBERS.length) {
+      const newColors = {}, newDisplay = {};
+      LEAGUE_MEMBERS.forEach((m, i) => {
+        if (!m.team_name) return;
+        newColors[m.team_name] = TEAM_COLOR_PALETTE[i % TEAM_COLOR_PALETTE.length];
+        newDisplay[m.team_name] = m.team_name;
+      });
+      EXEC_COLORS = newColors;
+      DISPLAY = newDisplay;
+    }
     if (LEAGUE_CONTEXT) document.title = `${LEAGUE_CONTEXT.name} — Studio Exec Fantasy`;
   } catch(e) {
     console.warn("[league context] failed to load:", e.message);
@@ -270,7 +285,15 @@ const ENDGAME_START_DATE = new Date(2027, 0, 1); // Jan 1, 2027 — auto-trigger
 const ENDGAME_FILMS_LEFT_THRESHOLD = 5; // OR trigger when ≤5 films unreleased
 const ELIGIBILITY_START = "March 16, 2026";
 const ELIGIBILITY_END = "March 14, 2027";
-const EXEC_COLORS = { BRANDON: "#3498db", RAFA: "#e74c3c", KAI: "#9b59b6", PATRICK: "#e67e22", BB: "#2ecc71" };
+// Mutable (not const): for a real league (!IS_LEGACY) these get rebuilt from
+// that league's actual league_members in loadLeagueContext() below, so each
+// league shows its own roster/colors instead of the original hardcoded
+// 5-person cast. The values here remain the permanent, untouched defaults
+// for the bare-URL IS_LEGACY path.
+let EXEC_COLORS = { BRANDON: "#3498db", RAFA: "#e74c3c", KAI: "#9b59b6", PATRICK: "#e67e22", BB: "#2ecc71" };
+// Rotation used to assign a color to each team_name in a real league, in
+// join order. Distinct enough to tell apart at a glance up to ~10 teams.
+const TEAM_COLOR_PALETTE = ["#3498db","#e74c3c","#9b59b6","#e67e22","#2ecc71","#1abc9c","#e91e63","#f1c40f","#5b6ee1","#95a5a6"];
 
 // ── Endgame detection ─────────────────────────────────────────────────────────
 // Endgame activates when EITHER:
@@ -292,7 +315,8 @@ function daysUntil(date){
 
 // Fallback studio names — will be overridden by sheet data if available
 const DEFAULT_STUDIOS = { BRANDON: "Continental Studios", RAFA: "Dwayne the Rock's Wig", KAI: "Ginza Films", PATRICK: "Brock Heimer", BB: "No Wot Studios" };
-const DISPLAY = { BRANDON: "Brandon", RAFA: "Rafa", KAI: "Kai", PATRICK: "Patrick", BB: "BB" };
+// Mutable for the same reason as EXEC_COLORS above — rebuilt per real league.
+let DISPLAY = { BRANDON: "Brandon", RAFA: "Rafa", KAI: "Kai", PATRICK: "Patrick", BB: "BB" };
 const BUDGET = 500;
 // BB has $18M remaining (originally $8M + extra from GxK situation)
 // Patrick has $9M remaining. Brandon has $0 remaining.
@@ -1043,8 +1067,8 @@ function EndgameCountdownBanner({theme}){
 // ─── MAIN ──────────────────
 function App(){
   const[tab,setTab]=useState(localStorage.getItem('sef_default_tab')||"standings");
-  const[films,setFilms]=useState(FALLBACK_FILMS);
-  const[studioNames,setStudioNames]=useState(DEFAULT_STUDIOS);
+  const[films,setFilms]=useState(IS_LEGACY?FALLBACK_FILMS:[]);
+  const[studioNames,setStudioNames]=useState(IS_LEGACY?DEFAULT_STUDIOS:{});
   const[liveStatus,setLiveStatus]=useState("loading");
   const[expandedExecs,setExpandedExecs]=useState(new Set());
   const[weeklyBO,setWeeklyBO]=useState(FALLBACK_WEEKLY_BO);
@@ -1127,7 +1151,11 @@ function App(){
             `league_id=eq.${LEAGUE_UUID}&select=*,universe_films(title,release_date,bo,opening_weekend,locked,imdb_id)`
           );
           console.log("[supabase] league_picks rows:", rows.length);
-          if(rows.length>0){
+          {
+            // Note: no rows.length>0 guard here on purpose. Zero rows is a
+            // real, valid state for a brand-new league (no picks drafted
+            // yet), not a failure -- it should render an empty slate, not
+            // silently fall through to FALLBACK_FILMS's sample data.
             const films = rows.map(r=>{
               const uf = r.universe_films || null; // null for a Festival Futures placeholder pick
               const release = uf?.release_date || r.release_date || null;
