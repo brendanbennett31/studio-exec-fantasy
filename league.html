@@ -3668,6 +3668,14 @@ function ManageTab({leagueContext, members, userMembership}){
   const[pickBid,setPickBid]=React.useState('');
   const[pickSaving,setPickSaving]=React.useState(false);
   const[pickMsg,setPickMsg]=React.useState(null);
+  // Resolving a blind Festival Futures placeholder (e.g. "Palme d'Or
+  // Winner") into the real film once it's known -- a prerequisite for
+  // Acquisitions' refund rules, which need imdb_id is not null to mean
+  // "this pick has resolved to a real film."
+  const[resolvingPickId,setResolvingPickId]=React.useState(null);
+  const[resolveSearch,setResolveSearch]=React.useState('');
+  const[resolveSelectedFilm,setResolveSelectedFilm]=React.useState(null);
+  const[resolveSaving,setResolveSaving]=React.useState(false);
 
   // Same normalization as universe.html's normTitle() -- this repo has no
   // shared-module mechanism (every .html file is self-contained), so this
@@ -3750,6 +3758,43 @@ function ManageTab({leagueContext, members, userMembership}){
       headers:{'apikey':SUPABASE_ANON_KEY,'Authorization':`Bearer ${session?.access_token||SUPABASE_ANON_KEY}`}
     });
     if(res.ok) setPicksList(pl=>pl.filter(p=>p.id!==id));
+  }
+
+  function getVisibleResolveCandidates(){
+    const already=new Set(picksList.filter(p=>p.imdb_id).map(p=>p.imdb_id));
+    let list=universeFilms.filter(f=>!already.has(f.imdb_id));
+    if(resolveSearch.trim()){
+      const normed=normTitle(resolveSearch);
+      list=list.filter(f=>normTitle(f.title).includes(normed));
+    }
+    return list.slice(0,50);
+  }
+
+  function openResolvePlaceholder(pickId){
+    setResolvingPickId(pickId);
+    setResolveSearch(''); setResolveSelectedFilm(null);
+  }
+
+  // Turns a blind placeholder pick (imdb_id is null, e.g. "Palme d'Or
+  // Winner") into the real film once it's known. Clears title/release_date
+  // since those only exist to display a placeholder -- once imdb_id is set,
+  // the join to universe_films is the source of truth for both.
+  async function resolvePlaceholder(pickId){
+    if(!resolveSelectedFilm) return;
+    setResolveSaving(true);
+    const session=getSession();
+    const res=await fetch(`${SUPABASE_URL}/rest/v1/league_picks?id=eq.${pickId}`,{
+      method:'PATCH',
+      headers:{'apikey':SUPABASE_ANON_KEY,'Authorization':`Bearer ${session?.access_token||SUPABASE_ANON_KEY}`,'Content-Type':'application/json','Prefer':'return=minimal'},
+      body:JSON.stringify({imdb_id:resolveSelectedFilm.imdb_id, title:null, release_date:null})
+    });
+    setResolveSaving(false);
+    if(res.ok){
+      setResolvingPickId(null); setResolveSelectedFilm(null); setResolveSearch('');
+      loadUniverseAndPicks();
+    } else {
+      setPickMsg({text:'Failed to resolve placeholder — try again.',error:true});
+    }
   }
 
   const inp={width:'100%',padding:'8px 10px',background:'#1a1a28',border:'1px solid #222233',borderRadius:6,color:'#e8e8f0',fontSize:13,fontFamily:"'Helvetica Neue',sans-serif",outline:'none',boxSizing:'border-box'};
@@ -3835,13 +3880,44 @@ function ManageTab({leagueContext, members, userMembership}){
             <div style={{fontSize:10,color:'#6a6a7e',textTransform:'uppercase',letterSpacing:'0.1em',marginBottom:8,borderTop:'1px solid #222233',paddingTop:14}}>Current Picks ({picksList.length})</div>
             <div style={{display:'flex',flexDirection:'column',gap:4,maxHeight:220,overflowY:'auto'}}>
               {picksList.map(p=>(
-                <div key={p.id} style={{display:'flex',alignItems:'center',gap:10,padding:'8px 10px',background:'#1a1a28',borderRadius:6}}>
-                  <div style={{flex:1,fontSize:12,color:'#e8e8f0'}}>{p.universe_films?.title||p.title||'—'}</div>
-                  <div style={{fontSize:11,color:'#6a6a7e',fontFamily:'monospace'}}>{p.team_name}</div>
-                  <div style={{fontSize:11,color:'#d4a843',fontFamily:'monospace'}}>${p.bid}M</div>
-                  <button onClick={()=>deletePick(p.id)} style={{background:'none',border:'none',color:'#6a6a7e',cursor:'pointer',padding:4}}>
-                    <svg width="12" height="12" viewBox="0 0 14 14" fill="none"><path d="M2.5 3.5h9M5.5 3.5V2a1 1 0 0 1 1-1h1a1 1 0 0 1 1 1v1.5M11 3.5l-.6 8.1a1 1 0 0 1-1 .9H4.6a1 1 0 0 1-1-.9L3 3.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                  </button>
+                <div key={p.id} style={{display:'flex',flexDirection:'column',gap:6,padding:'8px 10px',background:'#1a1a28',borderRadius:6}}>
+                  <div style={{display:'flex',alignItems:'center',gap:10}}>
+                    <div style={{flex:1,fontSize:12,color:'#e8e8f0'}}>{p.universe_films?.title||p.title||'—'}</div>
+                    <div style={{fontSize:11,color:'#6a6a7e',fontFamily:'monospace'}}>{p.team_name}</div>
+                    <div style={{fontSize:11,color:'#d4a843',fontFamily:'monospace'}}>${p.bid}M</div>
+                    {!p.imdb_id&&(
+                      <button onClick={()=>resolvingPickId===p.id?setResolvingPickId(null):openResolvePlaceholder(p.id)}
+                        style={{background:'none',border:'1px solid #3a3a4e',borderRadius:5,color:'#6a6a7e',cursor:'pointer',padding:'3px 8px',fontSize:10}}>
+                        {resolvingPickId===p.id?'Cancel':'Resolve'}
+                      </button>
+                    )}
+                    <button onClick={()=>deletePick(p.id)} style={{background:'none',border:'none',color:'#6a6a7e',cursor:'pointer',padding:4}}>
+                      <svg width="12" height="12" viewBox="0 0 14 14" fill="none"><path d="M2.5 3.5h9M5.5 3.5V2a1 1 0 0 1 1-1h1a1 1 0 0 1 1 1v1.5M11 3.5l-.6 8.1a1 1 0 0 1-1 .9H4.6a1 1 0 0 1-1-.9L3 3.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                    </button>
+                  </div>
+                  {resolvingPickId===p.id&&(
+                    <div style={{paddingTop:6,borderTop:'1px solid #222233'}}>
+                      <div style={{fontSize:10,color:'#6a6a7e',marginBottom:6}}>Turn this placeholder into the real film once it's known.</div>
+                      <input value={resolveSearch} onChange={e=>{setResolveSearch(e.target.value);setResolveSelectedFilm(null);}}
+                        placeholder="Search Universe films…" style={{width:'100%',padding:'6px 10px',borderRadius:5,border:'1px solid #2a2a3a',background:'#0e0e16',color:'#e8e8f0',fontSize:12,marginBottom:6,boxSizing:'border-box'}}/>
+                      {resolveSearch.trim()&&!resolveSelectedFilm&&(
+                        <div style={{maxHeight:120,overflowY:'auto',background:'#0e0e16',border:'1px solid #2a2a3a',borderRadius:5,marginBottom:6}}>
+                          {getVisibleResolveCandidates().map(f=>(
+                            <div key={f.id} onClick={()=>setResolveSelectedFilm(f)} style={{padding:'6px 10px',fontSize:12,cursor:'pointer',color:'#e8e8f0',borderBottom:'1px solid #1a1a28'}}
+                              onMouseEnter={e=>e.currentTarget.style.background='#1a1a28'} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                              {f.title}
+                            </div>
+                          ))}
+                          {getVisibleResolveCandidates().length===0&&<div style={{padding:'8px 10px',fontSize:11,color:'#6a6a7e'}}>No matches (or already drafted in this league).</div>}
+                        </div>
+                      )}
+                      {resolveSelectedFilm&&<div style={{fontSize:11,color:'#34d399',marginBottom:6}}>Selected: {resolveSelectedFilm.title}</div>}
+                      <button onClick={()=>resolvePlaceholder(p.id)} disabled={!resolveSelectedFilm||resolveSaving}
+                        style={{padding:'6px 14px',borderRadius:5,border:'none',background:'#d4a843',color:'#0d0d14',fontSize:11,fontWeight:700,cursor:'pointer',opacity:(!resolveSelectedFilm||resolveSaving)?0.6:1}}>
+                        {resolveSaving?'Saving...':'Confirm Resolve'}
+                      </button>
+                    </div>
+                  )}
                 </div>
               ))}
               {picksList.length===0&&<div style={{fontSize:12,color:'#6a6a7e'}}>No picks yet.</div>}

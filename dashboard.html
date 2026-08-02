@@ -654,6 +654,7 @@ function renderLeagueCard(membership) {
         <a class="btn btn-primary btn-sm" href="/league?id=${league.id}" style="text-decoration:none">View League →</a>
         ${role === 'admin' ? `<button class="btn btn-ghost btn-sm" onclick="copyInviteLink('${league.id}', this)">Share Link</button>` : ''}
         ${role === 'admin' ? `<button class="btn btn-ghost btn-sm" onclick="renameLeague('${league.id}', '${escHtml(league.name)}')">Rename</button>` : ''}
+        ${role === 'admin' ? `<button class="btn btn-ghost btn-sm" onclick="openDuplicateModal('${league.id}', '${escHtml(league.name)}', ${league.season})">Duplicate</button>` : ''}
         ${role === 'admin'
           ? `<button class="btn btn-danger-ghost btn-sm" onclick="confirmDeleteLeague('${league.id}', '${escHtml(league.name)}')">Delete League</button>`
           : `<button class="btn btn-danger-ghost btn-sm" onclick="confirmLeaveLeague('${league.id}', '${escHtml(league.name)}')">Leave League</button>`
@@ -1075,6 +1076,34 @@ function openRenameModal(leagueId, currentName) {
   modal.style.display = 'flex';
 }
 
+function openDuplicateModal(leagueId, currentName, currentSeason) {
+  // Reuse the LAM modal infrastructure, same pattern as openRenameModal.
+  const modal = document.getElementById('leagueActionModal');
+  document.getElementById('lamIcon').innerHTML = '<svg width="24" height="24" viewBox="0 0 12 12" fill="none"><rect x="2" y="2" width="6" height="6" rx="1" stroke="#d4a843" stroke-width="1.2"/><path d="M5 8v1a1 1 0 0 0 1 1h4a1 1 0 0 0 1-1V5a1 1 0 0 0-1-1h-1" stroke="#d4a843" stroke-width="1.2"/></svg>';
+  document.getElementById('lamTitle').textContent = 'Duplicate League';
+  document.getElementById('lamBody').textContent = `Creates a new league for Season ${currentSeason + 1} with the same settings, roster, and current picks as "${currentName}". The original league is never modified.`;
+  const wrap = document.getElementById('lamConfirmWrap');
+  wrap.style.display = 'block';
+  const input = document.getElementById('lamConfirmInput');
+  input.value = currentName;
+  input.placeholder = 'New league name';
+  const btn = document.getElementById('lamConfirmBtn');
+  btn.textContent = 'Duplicate';
+  btn.style.background = '#d4a843';
+  btn.style.color = '#0d0d14';
+  btn.disabled = false;
+  btn.style.opacity = '1';
+  input.oninput = () => {
+    btn.disabled = input.value.trim().length < 1;
+    btn.style.opacity = btn.disabled ? '0.5' : '1';
+  };
+  _lamAction = 'duplicate';
+  _lamLeagueId = leagueId;
+  _lamLeagueName = currentName;
+  _lamLeagueSeason = currentSeason;
+  modal.style.display = 'flex';
+}
+
 function showToast(msg, isError) {
   let toast = document.getElementById('sef-toast');
   if (!toast) {
@@ -1094,6 +1123,7 @@ function showToast(msg, isError) {
 let _lamAction = null;
 let _lamLeagueId = null;
 let _lamLeagueName = null;
+let _lamLeagueSeason = null;
 
 function openLAM({icon, title, body, confirmLabel, requiresTyping, action}) {
   _lamAction = action;
@@ -1198,6 +1228,22 @@ async function executeLAM() {
     closeLAM();
     if (ok) { showToast('League deleted'); await loadDashboard(); }
     else showToast('Failed to delete league', true);
+
+  } else if (_lamAction === 'duplicate') {
+    const input = document.getElementById('lamConfirmInput');
+    const newName = input.value.trim();
+    if (!newName) { closeLAM(); return; }
+    const { ok, data } = await sbFetch('/rest/v1/rpc/duplicate_league', {
+      method: 'POST',
+      body: JSON.stringify({
+        p_source_league_id: _lamLeagueId,
+        p_new_name: newName,
+        p_new_season: (_lamLeagueSeason || 0) + 1
+      })
+    });
+    closeLAM();
+    if (ok) { showToast('League duplicated'); await loadDashboard(); }
+    else showToast(data?.message || 'Failed to duplicate league', true);
   }
 }
 

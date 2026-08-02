@@ -85,6 +85,7 @@ td{padding:6px 14px;vertical-align:middle}
 .cell-static.muted{color:var(--muted);font-style:italic}
 .col-title{min-width:200px}
 .col-notes{min-width:200px}
+.col-festival{min-width:150px}
 .col-imdb{min-width:120px;font-family:'JetBrains Mono',monospace;font-size:12px}
 .col-actions{width:44px;text-align:center}
 .icon-btn{background:none;border:none;color:var(--muted);cursor:pointer;padding:6px;border-radius:5px;display:inline-flex;align-items:center;justify-content:center;transition:all 0.15s}
@@ -495,6 +496,7 @@ function renderTable() {
               <th class="sortable" onclick="handleSort('release_date')">Release Date${sortArrow('release_date')}</th>
               <th class="col-imdb">IMDb ID</th>
               <th class="col-notes">Notes</th>
+              <th class="col-festival">Festival Protected Until</th>
               ${isAdmin ? '<th class="col-actions"></th>' : ''}
             </tr>
           </thead>
@@ -515,6 +517,7 @@ function renderRow(f) {
         <td><div class="cell-static">${formatDate(f.release_date)}</div></td>
         <td class="col-imdb"><div class="cell-static">${escHtml(f.imdb_id)||'—'}</div></td>
         <td class="col-notes"><div class="cell-static ${f.notes?'':'muted'}">${escHtml(f.notes)||'—'}</div></td>
+        <td class="col-festival"><div class="cell-static">${formatDate(f.festival_protected_until)}</div></td>
       </tr>
     `;
   }
@@ -528,6 +531,8 @@ function renderRow(f) {
         onblur="saveTitleOrImdb(${f.id},'imdb_id',this.value,this)" onkeydown="if(event.key==='Enter')this.blur()"/></td>
       <td class="col-notes"><input class="cell-input" value="${escHtml(f.notes)||''}" placeholder="—"
         onblur="saveField(${f.id},'notes',this.value,this)" onkeydown="if(event.key==='Enter')this.blur()"/></td>
+      <td class="col-festival"><input class="cell-input" type="date" value="${f.festival_protected_until||''}"
+        onchange="saveField(${f.id},'festival_protected_until',this.value||null,this)" title="If set, this film is protected from Acquisitions until this date"/></td>
       <td class="col-actions">
         <button class="icon-btn" title="Delete film" onclick="openDeleteModal(${f.id},'${escHtml(f.title).replace(/'/g,"\\'")}')">
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2.5 3.5h9M5.5 3.5V2a1 1 0 0 1 1-1h1a1 1 0 0 1 1 1v1.5M11 3.5l-.6 8.1a1 1 0 0 1-1 .9H4.6a1 1 0 0 1-1-.9L3 3.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
