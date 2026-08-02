@@ -99,7 +99,7 @@ as $$
 declare
   v_src leagues%rowtype;
   v_new_id uuid;
-  v_new_season int;
+  v_new_season text;
 begin
   if not public.is_league_admin(p_source_league_id, auth.uid()) then
     raise exception 'Only an admin of the source league can duplicate it';
@@ -110,7 +110,11 @@ begin
     raise exception 'Source league not found';
   end if;
 
-  v_new_season := coalesce(p_new_season, v_src.season + 1);
+  -- leagues.season is stored as text (matches dashboard.html's create-league
+  -- form, which never parses it to a number), so p_new_season (an int
+  -- parameter -- callers think of a season as a number) and v_src.season
+  -- both need casting before they can be combined.
+  v_new_season := coalesce(p_new_season::text, (v_src.season::int + 1)::text);
 
   insert into leagues (
     name, season, budget, num_players, min_bid, max_bid,
@@ -122,7 +126,7 @@ begin
     v_new_season,
     v_src.budget, v_src.num_players, v_src.min_bid, v_src.max_bid,
     v_src.oscar_nom_bonus, v_src.oscar_win_bonus, v_src.bp_bonus, v_src.festival_picks,
-    false, encode(gen_random_bytes(9), 'hex'), v_src.created_by, v_src.draft_status,
+    false, substring(replace(gen_random_uuid()::text, '-', '') for 18), v_src.created_by, v_src.draft_status,
     false, v_src.acq_budget_default, v_src.acq_min_bid, v_src.acq_refund_rate
   )
   returning id into v_new_id;
