@@ -1175,11 +1175,16 @@ function App(){
             // undefined for every film in such a league, crashing the render
             // (blank page). A brand-new league naturally yields zero teams
             // here since films is empty, which is the desired empty state.
+            // A member can pick their own color (see league_members.color,
+            // migration 016) -- prefer that over the auto-assigned palette
+            // rotation when one's been set.
+            const memberColorByTeam = {};
+            LEAGUE_MEMBERS.forEach(m=>{ if(m.team_name && m.color) memberColorByTeam[m.team_name]=m.color; });
             const newColors = {}, newDisplay = {};
             let colorIdx = 0;
             films.forEach(f=>{
               if(!f.team || newColors[f.team]) return;
-              newColors[f.team] = TEAM_COLOR_PALETTE[colorIdx % TEAM_COLOR_PALETTE.length];
+              newColors[f.team] = memberColorByTeam[f.team] || TEAM_COLOR_PALETTE[colorIdx % TEAM_COLOR_PALETTE.length];
               newDisplay[f.team] = f.team;
               colorIdx++;
             });
@@ -3972,6 +3977,7 @@ function SettingsPanel({membership, leagueCtx, onClose}){
   const[tab,setTab]=useState("profile");
   const[displayName,setDisplayName]=useState(session?.user?.user_metadata?.display_name||"");
   const[studioName,setStudioName]=useState(membership?.team_name||"");
+  const[teamColor,setTeamColor]=useState(membership?.color||"");
   const[email,setEmail]=useState(session?.user?.email||"");
   const[currentPw,setCurrentPw]=useState("");
   const[newPw,setNewPw]=useState("");
@@ -4025,13 +4031,43 @@ function SettingsPanel({membership, leagueCtx, onClose}){
   async function saveStudioName(){
     setSaving(true); setMsg(null);
     if(!session||!membership) return;
+    const newName = studioName.trim();
+    if(!newName){ setMsg({text:"Studio name can't be empty",error:true}); setSaving(false); return; }
+    // Goes through the rename_my_team() RPC (migration 016) rather than a
+    // plain PATCH -- league_picks.team_name is a plain string match, not a
+    // foreign key to league_members, so a rename needs to cascade into this
+    // member's existing picks too or their already-drafted films silently
+    // fall out of standings under the old name. A plain member can't do
+    // that cascade with a direct PATCH since league_picks writes are
+    // admin-only by RLS -- the RPC is scoped narrowly to "rename myself".
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/rename_my_team`, {
+      method:"POST",
+      headers:{"apikey":SUPABASE_ANON_KEY,"Authorization":`Bearer ${session.access_token}`,"Content-Type":"application/json"},
+      body:JSON.stringify({p_league_id:leagueCtx?.id, p_new_name:newName})
+    });
+    if(res.ok){
+      setMsg({text:"Studio name updated — reload to see changes",error:false});
+    } else {
+      const data = await res.json().catch(()=>({}));
+      setMsg({text:data.message||"Failed to update studio name",error:true});
+    }
+    setSaving(false);
+  }
+
+  async function saveTeamColor(c){
+    setSaving(true); setMsg(null);
+    if(!session||!membership){ setSaving(false); return; }
+    setTeamColor(c);
+    // Color only touches league_members, which a member can already PATCH
+    // for their own row (migration 005's members_update policy) -- no RPC
+    // needed here, unlike the team-name rename above.
     const res = await fetch(`${SUPABASE_URL}/rest/v1/league_members?league_id=eq.${leagueCtx?.id}&user_id=eq.${session.user.id}`, {
       method:"PATCH",
       headers:{"apikey":SUPABASE_ANON_KEY,"Authorization":`Bearer ${session.access_token}`,"Content-Type":"application/json","Prefer":"return=minimal"},
-      body:JSON.stringify({team_name:studioName.trim()})
+      body:JSON.stringify({color:c})
     });
-    if(res.ok){setMsg({text:"Studio name updated — reload to see changes",error:false});}
-    else{setMsg({text:"Failed to update studio name",error:true});}
+    if(res.ok){setMsg({text:"Color updated — reload to see changes",error:false});}
+    else{setMsg({text:"Failed to update color",error:true});}
     setSaving(false);
   }
 
@@ -4114,6 +4150,18 @@ function SettingsPanel({membership, leagueCtx, onClose}){
               <button onClick={saveStudioName} disabled={saving} style={{...btnStyle,background:"#d4a843",color:"#0d0d14",width:"100%",opacity:saving?0.7:1,marginBottom:24}}>
                 {saving?"Saving...":"Save Studio Name"}
               </button>
+              <div style={{...sectionStyle,paddingTop:20,borderTop:"1px solid #222233"}}>
+                <label style={labelStyle}>Your Color</label>
+                <div style={{display:"flex",flexWrap:"wrap",gap:10,marginTop:6}}>
+                  {TEAM_COLOR_PALETTE.map(c=>(
+                    <button key={c} onClick={()=>saveTeamColor(c)} disabled={saving} title={c}
+                      style={{width:30,height:30,borderRadius:"50%",background:c,cursor:"pointer",
+                        border:teamColor===c?"2px solid #e8e8f0":"2px solid transparent",
+                        boxShadow:teamColor===c?`0 0 0 2px ${c}`:"none",opacity:saving?0.6:1}}/>
+                  ))}
+                </div>
+                <div style={{fontSize:10,color:"#6a6a7e",marginTop:8}}>How your card and slate are colored in standings. Saves as soon as you pick one.</div>
+              </div>
               <div style={{paddingTop:20,borderTop:"1px solid #222233",marginBottom:20}}>
                 <label style={labelStyle}>Default Tab</label>
                 <select style={{...inputStyle,cursor:"pointer"}} value={localStorage.getItem('sef_default_tab')||'standings'} onChange={e=>{localStorage.setItem('sef_default_tab',e.target.value);setMsg({text:"Default tab saved",error:false});}}>
