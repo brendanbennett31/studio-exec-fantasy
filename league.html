@@ -1808,6 +1808,14 @@ function TickerNumber({value, duration=1800, formatter=v=>v}){
 const RANK_KEY_STABLE='sef_ranks_stable';
 const RANK_KEY_PREV='sef_ranks_prev';
 const RANK_WINDOW_MS=24*60*60*1000; // 24 hours
+// Bump this whenever a change to how standings/totals are computed could
+// make an old browser's cached snapshot incompatible (e.g. the 2026-08-01
+// box-office-centralization migration, which rewrote every league's
+// underlying totals at once and made every stored snapshot look like a
+// full-board reshuffle happened, even though nothing "moved" day-over-day
+// in the sense this feature is meant to track). A version mismatch is
+// treated the same as no snapshot at all -- silently re-baseline, no badges.
+const RANK_SCHEMA_VERSION=2;
 
 // Pure read — computes changes from localStorage, no side effects
 function getRankChanges(ranked){
@@ -1820,6 +1828,8 @@ function getRankChanges(ranked){
     if(s) stable=JSON.parse(s);
     if(p) prev=JSON.parse(p);
   }catch(e){}
+  if(stable&&stable.v!==RANK_SCHEMA_VERSION) stable=null;
+  if(prev&&prev.v!==RANK_SCHEMA_VERSION) prev=null;
   if(!stable) return {};
   const stableRanks=stable.ranks||{};
   const hasChanged=ranked.some(e=>stableRanks[e.name]!==undefined&&stableRanks[e.name]!==e.rank);
@@ -1842,9 +1852,11 @@ function commitRankStorage(ranked){
   ranked.forEach(e=>{current[e.name]=e.rank;});
   let stable=null;
   try{const s=localStorage.getItem(RANK_KEY_STABLE);if(s)stable=JSON.parse(s);}catch(e){}
+  if(stable&&stable.v!==RANK_SCHEMA_VERSION) stable=null;
   if(!stable){
-    // First ever load — initialize with old timestamp so no animation on first visit
-    try{localStorage.setItem(RANK_KEY_STABLE,JSON.stringify({ranks:current,timestamp:Date.now()-RANK_WINDOW_MS-1}));}catch(e){}
+    // First ever load (or an old-schema snapshot we're discarding) —
+    // initialize with old timestamp so no animation on first visit
+    try{localStorage.setItem(RANK_KEY_STABLE,JSON.stringify({ranks:current,timestamp:Date.now()-RANK_WINDOW_MS-1,v:RANK_SCHEMA_VERSION}));}catch(e){}
     console.log("[ranks] initialized stable storage");
     return;
   }
@@ -1852,8 +1864,8 @@ function commitRankStorage(ranked){
   const hasChanged=ranked.some(e=>stableRanks[e.name]!==undefined&&stableRanks[e.name]!==e.rank);
   if(hasChanged){
     try{
-      localStorage.setItem(RANK_KEY_PREV,JSON.stringify({ranks:stableRanks}));
-      localStorage.setItem(RANK_KEY_STABLE,JSON.stringify({ranks:current,timestamp:Date.now()}));
+      localStorage.setItem(RANK_KEY_PREV,JSON.stringify({ranks:stableRanks,v:RANK_SCHEMA_VERSION}));
+      localStorage.setItem(RANK_KEY_STABLE,JSON.stringify({ranks:current,timestamp:Date.now(),v:RANK_SCHEMA_VERSION}));
     }catch(e){}
     console.log("[ranks] committed new stable — ranks changed:",JSON.stringify(stableRanks),"→",JSON.stringify(current));
   }
