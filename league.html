@@ -1146,6 +1146,7 @@ function App(){
               const uf = r.universe_films || null; // null for a Festival Futures placeholder pick
               const release = uf?.release_date || r.release_date || null;
               return {
+                id:       r.id, // the league_picks row id -- needed for refund_my_film()
                 title:    uf?.title || r.title,
                 bid:      Number(r.bid),
                 bo:       Number(uf?.bo || 0),
@@ -1310,9 +1311,10 @@ function App(){
   },[endgameActive]);
 
   // Awards moves to position 2 in endgame; Calendar drops to position 3
+  const acqTab = (!IS_LEGACY&&leagueCtx?.acquisitions_enabled) ? [{id:"acquisitions",label:"Acquisitions"}] : [];
   const tabList=endgameActive
-    ?[{id:"standings",label:"Standings"},{id:"awards",label:"Awards"},{id:"timeline",label:"Calendar"},{id:"purchase",label:"By Price"},{id:"trends",label:"Trends"},{id:"rules",label:"Rules"},...(isAdmin&&!IS_LEGACY?[{id:"manage",label:"Manage",admin:true}]:[])]
-    :[{id:"standings",label:"Standings"},{id:"timeline",label:"Calendar"},{id:"purchase",label:"By Price"},{id:"trends",label:"Trends"},{id:"awards",label:"Awards"},{id:"rules",label:"Rules"},...(isAdmin&&!IS_LEGACY?[{id:"manage",label:"Manage",admin:true}]:[])];
+    ?[{id:"standings",label:"Standings"},{id:"awards",label:"Awards"},{id:"timeline",label:"Calendar"},{id:"purchase",label:"By Price"},{id:"trends",label:"Trends"},...acqTab,{id:"rules",label:"Rules"},...(isAdmin&&!IS_LEGACY?[{id:"manage",label:"Manage",admin:true}]:[])]
+    :[{id:"standings",label:"Standings"},{id:"timeline",label:"Calendar"},{id:"purchase",label:"By Price"},{id:"trends",label:"Trends"},{id:"awards",label:"Awards"},...acqTab,{id:"rules",label:"Rules"},...(isAdmin&&!IS_LEGACY?[{id:"manage",label:"Manage",admin:true}]:[])];
 
   // Theme palette swaps based on endgame
   const theme=endgameActive?{
@@ -1451,6 +1453,7 @@ function App(){
         {tab==="trends"&&<TrendsTab films={films} data={data} studioNames={studioNames} weeklyBO={weeklyBO} weeklyPOI={weeklyPOI} dailyBO={dailyBO}/>}
         {tab==="purchase"&&<div key="purchase" style={{animation:"fadeSlideUp 0.4s ease-out both"}}><PurchasePriceTab films={films} data={data} studioNames={studioNames}/></div>}
         {tab==="awards"&&<div key="awards" style={{animation:"fadeSlideUp 0.4s ease-out both"}}><AwardsTab films={films}/></div>}
+        {tab==="acquisitions"&&!IS_LEGACY&&leagueCtx?.acquisitions_enabled&&<div key="acquisitions" style={{animation:"fadeSlideUp 0.4s ease-out both"}}><AcquisitionsTab leagueContext={leagueCtx} members={leagueMembers} userMembership={membership}/></div>}
         {tab==="rules"&&<div key="rules" style={{animation:"fadeSlideUp 0.4s ease-out both"}}><Rules leagueCtx={leagueCtx}/></div>}
         {tab==="manage"&&isAdmin&&!IS_LEGACY&&<div key="manage" style={{animation:"fadeSlideUp 0.4s ease-out both"}}><ManageTab leagueContext={leagueCtx} members={leagueMembers} userMembership={membership}/></div>}
         <div style={{textAlign:"center",padding:"24px 0 8px",fontSize:10,color:"#3a3a4e",letterSpacing:"0.12em",textTransform:"uppercase",fontFamily:"monospace"}}>{days} days until Oscar Sunday &bull; March 14, 2027</div>
@@ -1896,23 +1899,59 @@ function StandingsTab({data,studioNames,expandedExecs,setExpandedExecs,liveStatu
   );
 }
 
-function SlateDrawer({exec,studioNames}){
+function SlateDrawer({exec,studioNames,myTeam}){
   const[sortMode,setSortMode]=useState("release");
+  const[confirmingId,setConfirmingId]=useState(null);
+  const[refunding,setRefunding]=useState(false);
+  const[refundMsg,setRefundMsg]=useState(null);
   const films=[...exec.films].sort((a,b)=>sortMode==="bid"?b.bid-a.bid:(!a.release?1:!b.release?-1:new Date(a.release)-new Date(b.release)));
   const rem=REMAINDERS[exec.name];
+  // Refunds only make sense on your own slate, in a league that's opted
+  // into Acquisitions (LEAGUE_CONTEXT read directly rather than threaded
+  // as a prop, matching how EXEC_COLORS/DISPLAY are already read in nested
+  // components elsewhere in this file).
+  const isMine = !!myTeam && myTeam===exec.name && !!LEAGUE_CONTEXT?.acquisitions_enabled;
+  const gridCols = isMine ? "1fr 50px 50px 80px 26px" : "1fr 50px 50px 80px";
+
+  // Server-side (refund_my_film) is the real enforcement -- this client
+  // check is just for a responsive-feeling UI. Deliberately not checking
+  // the Wednesday-if-declared rule here (would need this drawer to fetch
+  // the current week/declaration independently); the RPC's error message
+  // surfaces that case clearly if it applies.
+  async function confirmRefund(f){
+    setRefunding(true);
+    const session=getSession();
+    const res=await fetch(`${SUPABASE_URL}/rest/v1/rpc/refund_my_film`,{
+      method:"POST",
+      headers:{"apikey":SUPABASE_ANON_KEY,"Authorization":`Bearer ${session?.access_token||SUPABASE_ANON_KEY}`,"Content-Type":"application/json"},
+      body:JSON.stringify({p_league_id:LEAGUE_UUID,p_league_pick_id:f.id})
+    });
+    const data=await res.json().catch(()=>({}));
+    setRefunding(false);
+    if(res.ok){
+      window.location.reload(); // simplest way to reflect the removed pick + credited budget everywhere
+    } else {
+      setRefundMsg(data.message||"Refund failed");
+      setConfirmingId(null);
+    }
+  }
+
   return(
     <div style={{background:"#0a0a12",border:"1px solid #222233",borderTop:"none",borderRadius:"0 0 10px 10px",marginBottom:6}}>
       <div style={{display:"flex",gap:8,padding:"8px 14px",borderBottom:"1px solid #1a1a28",alignItems:"center"}}>
         <span style={{fontSize:10,color:"#6a6a7e",textTransform:"uppercase",letterSpacing:"0.08em"}}>Sort:</span>
         {[["release","Date"],["bid","Price"]].map(([k,l])=>(<button key={k} onClick={()=>setSortMode(k)} style={{fontSize:10,padding:"3px 8px",borderRadius:4,border:`1px solid ${sortMode===k?"#d4a843":"#2a2a3a"}`,background:sortMode===k?"#d4a84320":"transparent",color:sortMode===k?"#d4a843":"#6a6a7e",cursor:"pointer",fontWeight:600}}>{l}</button>))}
       </div>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 50px 50px 80px",gap:4,padding:"6px 14px",fontSize:9,color:"#6a6a7e",textTransform:"uppercase",letterSpacing:"0.08em",borderBottom:"1px solid #1a1a28"}}><div>Film</div><div style={{textAlign:"right"}}>Bid</div><div style={{textAlign:"center"}}>Date</div><div style={{textAlign:"right"}}>Dom. BO</div></div>
+      {refundMsg&&<div style={{padding:"6px 14px",fontSize:11,color:"#ef4444"}}>{refundMsg}</div>}
+      <div style={{display:"grid",gridTemplateColumns:gridCols,gap:4,padding:"6px 14px",fontSize:9,color:"#6a6a7e",textTransform:"uppercase",letterSpacing:"0.08em",borderBottom:"1px solid #1a1a28"}}><div>Film</div><div style={{textAlign:"right"}}>Bid</div><div style={{textAlign:"center"}}>Date</div><div style={{textAlign:"right"}}>Dom. BO</div>{isMine&&<div/>}</div>
       {films.map((f,i)=>{
         const roi=f.bo>0?((f.bo/(f.bid*1e6))*100).toFixed(0):null;
         const rd=f.release?parseReleaseDate(f.release):null;
         const rs=rd?`${rd.getMonth()+1}/${rd.getDate()}`:"—";
+        const daysToRelease=f.release?Math.ceil((parseReleaseDate(f.release)-new Date())/864e5):null;
+        const refundable=isMine&&f.imdb_id&&!f.voided&&(daysToRelease===null||daysToRelease>=14);
         return(
-          <div key={i} style={{display:"grid",gridTemplateColumns:"1fr 50px 50px 80px",gap:4,padding:"7px 14px",fontSize:12,alignItems:"center",borderBottom:"1px solid #0e0e16",background:f.voided?"rgba(239,68,68,0.04)":isReleaseDay(f.release)?"rgba(212,168,67,0.04)":"transparent",opacity:f.locked?0.65:f.voided?0.75:1}}>
+          <div key={i} style={{display:"grid",gridTemplateColumns:gridCols,gap:4,padding:"7px 14px",fontSize:12,alignItems:"center",borderBottom:"1px solid #0e0e16",background:f.voided?"rgba(239,68,68,0.04)":isReleaseDay(f.release)?"rgba(212,168,67,0.04)":"transparent",opacity:f.locked?0.65:f.voided?0.75:1}}>
             <div style={{minWidth:0}}>
               <ReleaseDayBadge releaseDate={f.release}>
                 {bomUrl(f.title)
@@ -1939,10 +1978,22 @@ function SlateDrawer({exec,studioNames}){
             <div style={{fontFamily:"monospace",fontSize:11,color:"#6a6a7e",textAlign:"right"}}>${f.bid}M</div>
             <div style={{fontFamily:"monospace",fontSize:10,color:"#4a4a5e",textAlign:"center"}}>{rs}</div>
             <div style={{fontFamily:"monospace",fontSize:11,color:f.bo>0?"#34d399":"#3a3a4e",textAlign:"right"}}>{f.bo>0?fmt(f.bo):"—"}</div>
+            {isMine&&(
+              <div style={{textAlign:"center"}}>
+                {confirmingId===f.id ? (
+                  <div style={{display:"flex",gap:2,justifyContent:"center"}}>
+                    <button onClick={()=>confirmRefund(f)} disabled={refunding} title={`Confirm: refund for 25% of $${f.bid}M`} style={{background:"none",border:"none",color:"#34d399",cursor:"pointer",fontSize:11,padding:2}}>✓</button>
+                    <button onClick={()=>setConfirmingId(null)} title="Cancel" style={{background:"none",border:"none",color:"#6a6a7e",cursor:"pointer",fontSize:11,padding:2}}>✕</button>
+                  </div>
+                ) : refundable ? (
+                  <button onClick={()=>{setConfirmingId(f.id);setRefundMsg(null);}} title="Refund this film for 25% of its bid — cannot be undone" style={{background:"none",border:"none",color:"#6a6a7e",cursor:"pointer",fontSize:11,padding:2}}>↺</button>
+                ) : null}
+              </div>
+            )}
           </div>
         );
       })}
-      {rem&&rem.remaining>0&&(<div style={{display:"grid",gridTemplateColumns:"1fr 50px 50px 80px",gap:4,padding:"7px 14px",fontSize:12,borderTop:"1px solid #1a1a28"}}><div style={{color:"#6a6a7e",fontStyle:"italic"}}>Unspent Budget</div><div style={{fontFamily:"monospace",fontSize:11,color:"#6a6a7e",textAlign:"right"}}>${rem.remaining}M</div><div/><div style={{fontFamily:"monospace",fontSize:11,color:"#3a3a4e",textAlign:"right"}}>—</div></div>)}
+      {rem&&rem.remaining>0&&(<div style={{display:"grid",gridTemplateColumns:gridCols,gap:4,padding:"7px 14px",fontSize:12,borderTop:"1px solid #1a1a28"}}><div style={{color:"#6a6a7e",fontStyle:"italic"}}>Unspent Budget</div><div style={{fontFamily:"monospace",fontSize:11,color:"#6a6a7e",textAlign:"right"}}>${rem.remaining}M</div><div/><div style={{fontFamily:"monospace",fontSize:11,color:"#3a3a4e",textAlign:"right"}}>—</div>{isMine&&<div/>}</div>)}
     </div>
   );
 }
@@ -2139,7 +2190,7 @@ function StandingsBO({data,studioNames,expandedExecs,toggleExec,previewChanges,l
                 </div>
                 <div style={{color:"#6a6a7e",fontSize:12,flexShrink:0,width:20,textAlign:"center"}}>{isOpen?"▲":"▼"}</div>
               </div>
-              {isOpen&&<SlateDrawer exec={exec} studioNames={studioNames}/>}
+              {isOpen&&<SlateDrawer exec={exec} studioNames={studioNames} myTeam={myTeam}/>}
             </div>
           );
         })}
@@ -2161,7 +2212,7 @@ function StandingsBO({data,studioNames,expandedExecs,toggleExec,previewChanges,l
   );
 }
 
-function StandingsPOI({data,studioNames,expandedExecs,toggleExec}){
+function StandingsPOI({data,studioNames,expandedExecs,toggleExec,myTeam}){
   const{poiRanked}=data;
   return(
     <div>
@@ -2187,7 +2238,7 @@ function StandingsPOI({data,studioNames,expandedExecs,toggleExec}){
             <div style={{textAlign:"right"}}><div style={{fontFamily:"monospace",fontSize:18,fontWeight:700,color:exec.poi>=100?"#34d399":exec.poi>0?"#f87171":"#4a4a5e"}}>{exec.poi>0?<><TickerNumber value={exec.poi} formatter={v=>Math.round(v)}/>%</>:"0%"}</div><div style={{fontSize:9,color:"#6a6a7e",textTransform:"uppercase",letterSpacing:"0.1em"}}>ROI</div></div>
             <div style={{color:"#6a6a7e",fontSize:12,flexShrink:0,width:20,textAlign:"center"}}>{isOpen?"▲":"▼"}</div>
           </div>
-          {isOpen&&<SlateDrawer exec={exec} studioNames={studioNames}/>}
+          {isOpen&&<SlateDrawer exec={exec} studioNames={studioNames} myTeam={myTeam}/>}
         </div>);
       })}
       <div style={{background:"#111119",border:"1px solid #222233",borderRadius:10,padding:16,marginTop:12,fontSize:12,color:"#6a6a7e"}}>
@@ -3536,6 +3587,292 @@ function Rules({leagueCtx}){
 }
 
 
+// ─── ACQUISITIONS TAB ──────────────────────────────────────────────────────
+// Weekly waiver-wire-style market: Fri-Tue declare, Wed bid, resolved
+// ~1am Thu (Apps Script sweep, see UniverseFilmsScraper.gs). All real
+// validation (deadlines, budget caps, eligibility) lives server-side in the
+// migrations 021-023 RPCs -- this is display + the self-service actions,
+// same trust boundary as the rest of this app's admin-gated writes.
+function AcquisitionWindowBanner({week,phase,declared}){
+  const[,forceTick]=useState(0);
+  useEffect(()=>{
+    const t=setInterval(()=>forceTick(x=>x+1),30000); // keep the countdown fresh
+    return()=>clearInterval(t);
+  },[]);
+
+  if(!week){
+    return <div style={{padding:"14px 16px",borderRadius:10,background:"#111119",border:"1px solid #222233",color:"#6a6a7e",fontSize:13,marginBottom:16}}>No active Acquisitions window yet — check back Friday.</div>;
+  }
+
+  const now=new Date();
+  const target=phase==="declare"?new Date(week.declare_deadline):phase==="bid"?new Date(week.bid_deadline):null;
+  let countdown=null;
+  if(target){
+    const ms=Math.max(0,target-now);
+    const h=Math.floor(ms/3.6e6), m=Math.floor((ms%3.6e6)/6e4);
+    countdown=`${h}h ${m}m`;
+  }
+
+  const label={declare:"Declaration Open",bid:"Bidding Open",resolving:"Resolving…",closed:"Window Closed"}[phase];
+  const sub={
+    declare:`Declare intent to bid — ${countdown} left`,
+    bid: declared?`Submit at least one bid — ${countdown} left`:"You didn't declare this week, so you can't bid — see you next Friday.",
+    resolving:"Bids are locked in and about to be resolved.",
+    closed:"Next window opens Friday.",
+  }[phase];
+  const color={declare:"#3498db",bid:declared?"#34d399":"#6a6a7e",resolving:"#fbbf24",closed:"#6a6a7e"}[phase];
+
+  return(
+    <div style={{padding:"14px 16px",borderRadius:10,background:"#111119",border:`1px solid ${color}44`,marginBottom:16}}>
+      <div style={{fontSize:13,fontWeight:700,color,marginBottom:2}}>{label}</div>
+      <div style={{fontSize:12,color:"#8a8a9e"}}>{sub}</div>
+    </div>
+  );
+}
+
+function AcquisitionsTab({leagueContext,members,userMembership}){
+  const l=leagueContext||{};
+  const isAdmin=userMembership?.role==="admin";
+
+  const[week,setWeek]=useState(null);
+  const[loading,setLoading]=useState(true);
+  const[declared,setDeclared]=useState(false);
+  const[myBids,setMyBids]=useState([]);
+  const[remaining,setRemaining]=useState(null);
+  const[resultsFeed,setResultsFeed]=useState([]);
+  const[weekBids,setWeekBids]=useState([]);
+  const[msg,setMsg]=useState(null);
+  const[declaring,setDeclaring]=useState(false);
+  const[resolving,setResolving]=useState(false);
+
+  const[universeFilms,setUniverseFilms]=useState([]);
+  const[existingImdbIds,setExistingImdbIds]=useState(new Set());
+  const[bidSearch,setBidSearch]=useState("");
+  const[bidSelectedFilm,setBidSelectedFilm]=useState(null);
+  const[bidAmount,setBidAmount]=useState("");
+  const[bidSaving,setBidSaving]=useState(false);
+
+  function normTitle(t){
+    return (t||"").toLowerCase().replace(/^(the |a |an )/,"").replace(/[^a-z0-9]+/g," ").trim();
+  }
+
+  async function callRpc(fn,args){
+    const session=getSession();
+    const res=await fetch(`${SUPABASE_URL}/rest/v1/rpc/${fn}`,{
+      method:"POST",
+      headers:{"apikey":SUPABASE_ANON_KEY,"Authorization":`Bearer ${session?.access_token||SUPABASE_ANON_KEY}`,"Content-Type":"application/json"},
+      body:JSON.stringify(args)
+    });
+    const data=await res.json().catch(()=>({}));
+    return {ok:res.ok,data};
+  }
+
+  async function loadAll(){
+    setLoading(true);
+    try{
+      const session=getSession();
+      const uid=session?.user?.id;
+      const weeks=await supabaseFetch("acquisition_weeks","order=week_start.desc&limit=1");
+      const w=(weeks&&weeks[0])||null;
+      setWeek(w);
+
+      if(w){
+        const [decl,bids,feed,picks]=await Promise.all([
+          uid?supabaseFetch("acquisition_declarations",`week_id=eq.${w.id}&league_id=eq.${LEAGUE_UUID}&user_id=eq.${uid}`):Promise.resolve([]),
+          uid?supabaseFetch("acquisition_bids",`week_id=eq.${w.id}&league_id=eq.${LEAGUE_UUID}&user_id=eq.${uid}&select=*,universe_films(title)`):Promise.resolve([]),
+          supabaseFetch("acquisition_bids",`league_id=eq.${LEAGUE_UUID}&status=eq.won&select=*,universe_films(title)&order=resolved_at.desc&limit=20`),
+          supabaseFetch("league_picks",`league_id=eq.${LEAGUE_UUID}&imdb_id=not.is.null&select=imdb_id`),
+        ]);
+        setDeclared((decl||[]).length>0);
+        setMyBids(bids||[]);
+        setResultsFeed(feed||[]);
+        setExistingImdbIds(new Set((picks||[]).map(p=>p.imdb_id)));
+
+        if(uid){
+          const budgetRes=await callRpc("my_acq_remaining_budget",{p_league_id:LEAGUE_UUID});
+          if(budgetRes.ok) setRemaining(Number(budgetRes.data));
+        }
+        if(isAdmin){
+          const wb=await supabaseFetch("acquisition_bids",`week_id=eq.${w.id}&league_id=eq.${LEAGUE_UUID}&select=*,universe_films(title)&order=imdb_id.asc,amount.desc`);
+          setWeekBids(wb||[]);
+        }
+      }
+
+      if(universeFilms.length===0){
+        const uf=await supabaseFetch("universe_films","select=id,title,imdb_id,release_date,festival_protected_until&order=release_date.asc.nullslast");
+        setUniverseFilms(uf||[]);
+      }
+    }catch(e){
+      console.error("[acquisitions] load failed:",e.message);
+    }
+    setLoading(false);
+  }
+
+  useEffect(()=>{ loadAll(); },[]);
+
+  const now=new Date();
+  const phase = !week?"none"
+    : now<new Date(week.declare_deadline)?"declare"
+    : now<new Date(week.bid_deadline)?"bid"
+    : !week.resolved_at?"resolving"
+    : "closed";
+
+  async function declareIntent(){
+    setDeclaring(true); setMsg(null);
+    const {ok,data}=await callRpc("declare_for_acquisitions",{p_league_id:LEAGUE_UUID});
+    if(ok){ setMsg({text:"Declared — come back Wednesday to bid.",error:false}); loadAll(); }
+    else setMsg({text:data.message||"Failed to declare",error:true});
+    setDeclaring(false);
+  }
+
+  function getVisibleBidCandidates(){
+    let list=universeFilms.filter(f=>{
+      if(!f.imdb_id||existingImdbIds.has(f.imdb_id)) return false;
+      if(f.release_date&&new Date(f.release_date)<=now) return false;
+      if(f.festival_protected_until&&new Date(f.festival_protected_until)>now) return false;
+      return true;
+    });
+    if(bidSearch.trim()){
+      const n=normTitle(bidSearch);
+      list=list.filter(f=>normTitle(f.title).includes(n));
+    }
+    return list.slice(0,50);
+  }
+
+  async function submitBid(){
+    setMsg(null);
+    if(!bidSelectedFilm){ setMsg({text:"Pick a film first.",error:true}); return; }
+    const amt=Number(bidAmount);
+    if(!bidAmount||isNaN(amt)||amt<=0){ setMsg({text:"Enter a valid bid amount.",error:true}); return; }
+    setBidSaving(true);
+    const {ok,data}=await callRpc("submit_acquisition_bid",{p_league_id:LEAGUE_UUID,p_imdb_id:bidSelectedFilm.imdb_id,p_amount:amt});
+    setBidSaving(false);
+    if(ok){
+      setMsg({text:"Bid submitted.",error:false});
+      setBidSelectedFilm(null); setBidSearch(""); setBidAmount("");
+      loadAll();
+    } else {
+      setMsg({text:data.message||"Bid rejected",error:true});
+    }
+  }
+
+  async function withdrawBid(bidId){
+    const {ok,data}=await callRpc("withdraw_acquisition_bid",{p_bid_id:bidId});
+    if(ok) loadAll();
+    else setMsg({text:data.message||"Failed to withdraw",error:true});
+  }
+
+  async function resolveNow(){
+    if(!week) return;
+    setResolving(true); setMsg(null);
+    const {ok,data}=await callRpc("admin_resolve_acquisitions_week",{p_league_id:LEAGUE_UUID,p_week_id:week.id});
+    setResolving(false);
+    if(ok){ setMsg({text:"Resolved.",error:false}); loadAll(); }
+    else setMsg({text:data.message||"Resolve failed",error:true});
+  }
+
+  const myPendingTotal=myBids.filter(b=>b.status==="pending").reduce((s,b)=>s+Number(b.amount),0);
+
+  if(loading) return <div style={{padding:20,textAlign:"center",color:"#6a6a7e"}}>Loading Acquisitions…</div>;
+
+  return(
+    <div>
+      <AcquisitionWindowBanner week={week} phase={phase} declared={declared}/>
+      {msg&&<div style={{padding:"10px 14px",borderRadius:7,fontSize:13,marginBottom:16,background:msg.error?"rgba(239,68,68,0.08)":"rgba(52,211,153,0.08)",border:`1px solid ${msg.error?"rgba(239,68,68,0.2)":"rgba(52,211,153,0.2)"}`,color:msg.error?"#ef4444":"#34d399"}}>{msg.text}</div>}
+
+      {phase==="declare"&&!declared&&(
+        <div style={{padding:20,borderRadius:10,background:"#111119",border:"1px solid #222233",marginBottom:20,textAlign:"center"}}>
+          <div style={{fontSize:13,color:"#8a8a9e",marginBottom:14}}>Declare intent to bid this week. You'll need to submit at least one bid on Wednesday, or it'll be flagged as a violation.</div>
+          <button onClick={declareIntent} disabled={declaring} style={{padding:"10px 24px",borderRadius:8,border:"none",background:"#d4a843",color:"#0d0d14",fontSize:13,fontWeight:700,cursor:"pointer",opacity:declaring?0.7:1}}>
+            {declaring?"Declaring…":"Declare Intent to Bid"}
+          </button>
+        </div>
+      )}
+      {phase==="declare"&&declared&&(
+        <div style={{padding:14,borderRadius:8,background:"rgba(52,211,153,0.06)",border:"1px solid rgba(52,211,153,0.2)",color:"#34d399",fontSize:13,marginBottom:20}}>
+          You're declared for this week. Come back Wednesday to submit your bid(s).
+        </div>
+      )}
+
+      {phase==="bid"&&declared&&(
+        <div style={{padding:18,borderRadius:10,background:"#111119",border:"1px solid #222233",marginBottom:20}}>
+          <div style={{fontSize:11,fontWeight:700,color:"#6a6a7e",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:12}}>Submit a Bid</div>
+          <input value={bidSearch} onChange={e=>{setBidSearch(e.target.value);setBidSelectedFilm(null);}} placeholder="Search eligible films…"
+            style={{width:"100%",padding:"9px 12px",borderRadius:7,border:"1px solid #2a2a3a",background:"#0e0e16",color:"#e8e8f0",fontSize:13,marginBottom:8,boxSizing:"border-box"}}/>
+          {bidSearch.trim()&&!bidSelectedFilm&&(
+            <div style={{maxHeight:160,overflowY:"auto",background:"#0e0e16",border:"1px solid #2a2a3a",borderRadius:7,marginBottom:8}}>
+              {getVisibleBidCandidates().map(f=>(
+                <div key={f.id} onClick={()=>{setBidSelectedFilm(f);setBidSearch(f.title);}} style={{padding:"8px 12px",fontSize:13,cursor:"pointer",color:"#e8e8f0",borderBottom:"1px solid #1a1a28"}}
+                  onMouseEnter={e=>e.currentTarget.style.background="#1a1a28"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                  {f.title}
+                </div>
+              ))}
+              {getVisibleBidCandidates().length===0&&<div style={{padding:"10px 12px",fontSize:12,color:"#6a6a7e"}}>No eligible films match.</div>}
+            </div>
+          )}
+          {bidSelectedFilm&&<div style={{fontSize:11,color:"#34d399",marginBottom:8}}>Selected: {bidSelectedFilm.title}</div>}
+          <input type="number" value={bidAmount} onChange={e=>setBidAmount(e.target.value)} placeholder={`Bid ($M, min $${l.acq_min_bid||20}M)`}
+            style={{width:"100%",padding:"9px 12px",borderRadius:7,border:"1px solid #2a2a3a",background:"#0e0e16",color:"#e8e8f0",fontSize:13,marginBottom:10,boxSizing:"border-box"}}/>
+          <button onClick={submitBid} disabled={bidSaving} style={{padding:"8px 18px",borderRadius:7,border:"none",background:"#d4a843",color:"#0d0d14",fontSize:12,fontWeight:700,cursor:"pointer",opacity:bidSaving?0.7:1}}>
+            {bidSaving?"Submitting…":"Add Bid"}
+          </button>
+
+          <div style={{marginTop:18,paddingTop:14,borderTop:"1px solid #222233"}}>
+            <div style={{display:"flex",justifyContent:"space-between",fontSize:12,color:"#8a8a9e",marginBottom:8}}>
+              <span>Pending bids: ${myPendingTotal}M</span>
+              <span style={{color:remaining!=null&&myPendingTotal>remaining?"#ef4444":"#6a6a7e"}}>Remaining budget: {remaining!=null?`$${remaining}M`:"—"}</span>
+            </div>
+            {remaining!=null&&myPendingTotal>remaining&&<div style={{fontSize:11,color:"#ef4444",marginBottom:8}}>Your pending bids exceed your remaining budget — one or more may fail at resolution.</div>}
+            {myBids.filter(b=>b.status==="pending").map(b=>(
+              <div key={b.id} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 10px",background:"#1a1a28",borderRadius:6,marginBottom:4}}>
+                <div style={{flex:1,fontSize:12,color:"#e8e8f0"}}>{b.universe_films?.title||b.imdb_id}</div>
+                <div style={{fontSize:11,color:"#d4a843",fontFamily:"monospace"}}>${b.amount}M</div>
+                <button onClick={()=>withdrawBid(b.id)} style={{background:"none",border:"none",color:"#6a6a7e",cursor:"pointer",fontSize:11}}>Withdraw</button>
+              </div>
+            ))}
+            {myBids.filter(b=>b.status==="pending").length===0&&<div style={{fontSize:12,color:"#6a6a7e"}}>No pending bids yet.</div>}
+          </div>
+        </div>
+      )}
+
+      <div style={{marginBottom:20}}>
+        <div style={{fontSize:11,fontWeight:700,color:"#6a6a7e",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>Results</div>
+        {resultsFeed.length===0&&<div style={{fontSize:12,color:"#6a6a7e"}}>No acquisitions resolved yet.</div>}
+        {resultsFeed.map(b=>{
+          const team=(members||[]).find(m=>m.user_id===b.user_id)?.team_name||"—";
+          return (
+            <div key={b.id} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 10px",background:"#111119",border:"1px solid #1a1a28",borderRadius:6,marginBottom:4}}>
+              <div style={{flex:1,fontSize:12,color:"#e8e8f0"}}>{b.universe_films?.title||b.imdb_id}</div>
+              <div style={{fontSize:11,color:"#6a6a7e",fontFamily:"monospace"}}>{team}</div>
+              <div style={{fontSize:11,color:"#d4a843",fontFamily:"monospace"}}>${b.amount}M</div>
+              <div style={{fontSize:10,color:"#4a4a5e"}}>{new Date(b.resolved_at).toLocaleDateString()}</div>
+            </div>
+          );
+        })}
+      </div>
+
+      {isAdmin&&(
+        <div style={{padding:16,borderRadius:10,background:"#0e0e16",border:"1px solid #222233"}}>
+          <div style={{fontSize:11,fontWeight:700,color:"#d4a843",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>Admin: This Week's Bids</div>
+          {week&&<button onClick={resolveNow} disabled={resolving||phase!=="resolving"}
+            title={phase!=="resolving"?"Only available once the bid window has closed and it hasn't resolved yet. Resolving affects every league sharing this week's window, not just yours.":"Manually trigger resolution for this week (normally happens automatically ~1am after the deadline)."}
+            style={{padding:"7px 16px",borderRadius:7,border:"1px solid rgba(212,168,67,0.3)",background:"rgba(212,168,67,0.08)",color:"#d4a843",fontSize:12,fontWeight:700,cursor:phase==="resolving"?"pointer":"not-allowed",opacity:phase==="resolving"?1:0.5,marginBottom:14}}>
+            {resolving?"Resolving…":"Resolve Now"}
+          </button>}
+          {weekBids.map(b=>(
+            <div key={b.id} style={{display:"flex",alignItems:"center",gap:10,padding:"6px 10px",fontSize:12,borderBottom:"1px solid #1a1a28"}}>
+              <div style={{flex:1,color:"#e8e8f0"}}>{b.universe_films?.title||b.imdb_id}</div>
+              <div style={{color:"#6a6a7e",fontFamily:"monospace"}}>${b.amount}M</div>
+              <div style={{color:b.status==="won"?"#34d399":b.status==="lost"?"#ef4444":b.status==="invalid"?"#f59e0b":"#6a6a7e",fontSize:10,textTransform:"uppercase",fontWeight:700}}>{b.status}</div>
+            </div>
+          ))}
+          {weekBids.length===0&&<div style={{fontSize:12,color:"#6a6a7e"}}>No bids yet this week.</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── MANAGE TAB (Admin only) ──────────────────────────────────────────────────
 function ManageTab({leagueContext, members, userMembership}){
   const l = leagueContext || {};
@@ -3554,6 +3891,45 @@ function ManageTab({leagueContext, members, userMembership}){
     num_players: l.num_players||5,
     sacko_punishment: l.sacko_punishment||'',
   });
+
+  const[acqEnabled,setAcqEnabled]=React.useState(l.acquisitions_enabled||false);
+  const[acqSettings,setAcqSettings]=React.useState({
+    acq_budget_default: l.acq_budget_default||50,
+    acq_min_bid: l.acq_min_bid||20,
+    acq_refund_rate: l.acq_refund_rate!=null?l.acq_refund_rate:0.25,
+  });
+  const[acqSaving,setAcqSaving]=React.useState(false);
+  const[acqMsg,setAcqMsg]=React.useState(null);
+
+  async function toggleAcquisitions(){
+    const newVal=!acqEnabled;
+    setAcqSaving(true); setAcqMsg(null);
+    const session=getSession();
+    const res=await fetch(`${SUPABASE_URL}/rest/v1/leagues?id=eq.${LEAGUE_UUID}`,{
+      method:'PATCH',
+      headers:{'apikey':SUPABASE_ANON_KEY,'Authorization':`Bearer ${session?.access_token||SUPABASE_ANON_KEY}`,'Content-Type':'application/json','Prefer':'return=minimal'},
+      body:JSON.stringify({acquisitions_enabled:newVal})
+    });
+    setAcqSaving(false);
+    if(res.ok){ setAcqEnabled(newVal); setAcqMsg({text:newVal?'Acquisitions enabled — reload to see the new tab.':'Acquisitions disabled.',error:false}); }
+    else setAcqMsg({text:'Failed to update',error:true});
+  }
+
+  async function saveAcqSettings(){
+    setAcqSaving(true); setAcqMsg(null);
+    const session=getSession();
+    const res=await fetch(`${SUPABASE_URL}/rest/v1/leagues?id=eq.${LEAGUE_UUID}`,{
+      method:'PATCH',
+      headers:{'apikey':SUPABASE_ANON_KEY,'Authorization':`Bearer ${session?.access_token||SUPABASE_ANON_KEY}`,'Content-Type':'application/json','Prefer':'return=minimal'},
+      body:JSON.stringify({
+        acq_budget_default:Number(acqSettings.acq_budget_default)||50,
+        acq_min_bid:Number(acqSettings.acq_min_bid)||20,
+        acq_refund_rate:Number(acqSettings.acq_refund_rate)||0.25,
+      })
+    });
+    setAcqSaving(false);
+    setAcqMsg(res.ok?{text:'Acquisitions settings saved.',error:false}:{text:'Failed to save',error:true});
+  }
 
   async function toggleDraft(){
     const newStatus = draftStatus==='open'?'locked':'open';
@@ -3816,6 +4192,43 @@ function ManageTab({leagueContext, members, userMembership}){
             {draftStatus==='open'?'Lock Draft':'Reopen Draft'}
           </button>
         </div>
+      </div>
+
+      {/* Acquisitions */}
+      <div style={{background:'#111119',border:'1px solid #222233',borderRadius:10,padding:'16px 14px'}}>
+        <div style={{fontSize:12,fontWeight:700,color:'#d4a843',letterSpacing:'0.08em',textTransform:'uppercase',marginBottom:14}}>Acquisitions</div>
+        {acqMsg&&<div style={{padding:'8px 12px',borderRadius:6,fontSize:12,marginBottom:12,background:acqMsg.error?'rgba(239,68,68,0.08)':'rgba(52,211,153,0.08)',border:`1px solid ${acqMsg.error?'rgba(239,68,68,0.2)':'rgba(52,211,153,0.2)'}`,color:acqMsg.error?'#ef4444':'#34d399'}}>{acqMsg.text}</div>}
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,marginBottom:acqEnabled?16:0}}>
+          <div>
+            <div style={{fontSize:13,fontWeight:600,color:'#e8e8f0',marginBottom:4}}>Enable Acquisitions</div>
+            <div style={{fontSize:12,color:'#6a6a7e'}}>Weekly waiver-wire market — declare Fri-Tue, bid Wednesday. Off by default; safe to turn on for a duplicated/test league without affecting anyone else.</div>
+          </div>
+          <label style={{width:40,height:22,borderRadius:11,border:'none',background:acqEnabled?'#34d399':'#3a3a50',cursor:'pointer',position:'relative',transition:'background 0.2s',flexShrink:0}} onClick={toggleAcquisitions}>
+            <div style={{width:16,height:16,borderRadius:'50%',background:'#fff',position:'absolute',top:3,left:acqEnabled?20:3,transition:'left 0.2s'}}/>
+          </label>
+        </div>
+        {acqEnabled&&<>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:10,marginBottom:12}}>
+            <div>
+              <label style={{fontSize:10,color:'#6a6a7e',textTransform:'uppercase',letterSpacing:'0.06em',display:'block',marginBottom:5}}>Starting Budget ($M)</label>
+              <input type="number" value={acqSettings.acq_budget_default} onChange={e=>setAcqSettings(s=>({...s,acq_budget_default:e.target.value}))}
+                style={{width:'100%',padding:'8px 10px',borderRadius:6,border:'1px solid #2a2a3a',background:'#0e0e16',color:'#e8e8f0',fontSize:13,boxSizing:'border-box'}}/>
+            </div>
+            <div>
+              <label style={{fontSize:10,color:'#6a6a7e',textTransform:'uppercase',letterSpacing:'0.06em',display:'block',marginBottom:5}}>Min Bid ($M)</label>
+              <input type="number" value={acqSettings.acq_min_bid} onChange={e=>setAcqSettings(s=>({...s,acq_min_bid:e.target.value}))}
+                style={{width:'100%',padding:'8px 10px',borderRadius:6,border:'1px solid #2a2a3a',background:'#0e0e16',color:'#e8e8f0',fontSize:13,boxSizing:'border-box'}}/>
+            </div>
+            <div>
+              <label style={{fontSize:10,color:'#6a6a7e',textTransform:'uppercase',letterSpacing:'0.06em',display:'block',marginBottom:5}}>Refund Rate (0-1)</label>
+              <input type="number" step="0.05" value={acqSettings.acq_refund_rate} onChange={e=>setAcqSettings(s=>({...s,acq_refund_rate:e.target.value}))}
+                style={{width:'100%',padding:'8px 10px',borderRadius:6,border:'1px solid #2a2a3a',background:'#0e0e16',color:'#e8e8f0',fontSize:13,boxSizing:'border-box'}}/>
+            </div>
+          </div>
+          <button onClick={saveAcqSettings} disabled={acqSaving} style={{padding:'7px 16px',borderRadius:7,border:'none',background:'#d4a843',color:'#0d0d14',fontSize:12,fontWeight:700,cursor:'pointer',opacity:acqSaving?0.7:1}}>
+            {acqSaving?'Saving...':'Save Acquisitions Settings'}
+          </button>
+        </>}
       </div>
 
       {/* Add Picks */}
