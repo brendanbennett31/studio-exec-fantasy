@@ -1949,14 +1949,27 @@ function SlateDrawer({exec,studioNames,myTeam}){
   const[confirmingId,setConfirmingId]=useState(null);
   const[refunding,setRefunding]=useState(false);
   const[refundMsg,setRefundMsg]=useState(null);
+  const[refundHistory,setRefundHistory]=useState([]);
   const films=[...exec.films].sort((a,b)=>sortMode==="bid"?b.bid-a.bid:(!a.release?1:!b.release?-1:new Date(a.release)-new Date(b.release)));
   const rem=getTeamRemainder(exec.name);
-  // Refunds only make sense on your own slate, in a league that's opted
-  // into Acquisitions (LEAGUE_CONTEXT read directly rather than threaded
-  // as a prop, matching how EXEC_COLORS/DISPLAY are already read in nested
-  // components elsewhere in this file).
-  const isMine = !!myTeam && myTeam===exec.name && !!LEAGUE_CONTEXT?.acquisitions_enabled;
+  // Refund action only makes sense on your own slate; refund HISTORY is
+  // shown to everyone (rules say refunds "must be publicly declared"),
+  // both gated on the league having opted into Acquisitions (LEAGUE_CONTEXT
+  // read directly rather than threaded as a prop, matching how
+  // EXEC_COLORS/DISPLAY are already read in nested components elsewhere).
+  const acqOn = !!LEAGUE_CONTEXT?.acquisitions_enabled;
+  const isMine = !!myTeam && myTeam===exec.name && acqOn;
   const gridCols = isMine ? "1fr 50px 50px 80px 26px" : "1fr 50px 50px 80px";
+
+  // Refunded picks are deleted from league_picks (so the film is
+  // immediately available for someone else to acquire), so history for
+  // display comes from the refunds audit table instead.
+  useEffect(()=>{
+    if(!acqOn) return;
+    supabaseFetch("refunds",`league_id=eq.${LEAGUE_UUID}&team_name=eq.${encodeURIComponent(exec.name)}&order=refunded_at.desc`)
+      .then(rows=>setRefundHistory(rows||[]))
+      .catch(()=>{});
+  },[acqOn,exec.name]);
 
   // Server-side (refund_my_film) is the real enforcement -- this client
   // check is just for a responsive-feeling UI. Deliberately not checking
@@ -2031,20 +2044,30 @@ function SlateDrawer({exec,studioNames,myTeam}){
             {isMine&&(
               <div style={{textAlign:"center"}}>
                 {confirmingId===f.id ? (
-                  <div style={{display:"flex",gap:2,justifyContent:"center"}}>
-                    <button onClick={()=>confirmRefund(f)} disabled={refunding} title={`Confirm: refund for 25% of $${f.bid}M`} style={{background:"none",border:"none",color:"#34d399",cursor:"pointer",fontSize:11,padding:2}}>✓</button>
-                    <button onClick={()=>setConfirmingId(null)} title="Cancel" style={{background:"none",border:"none",color:"#6a6a7e",cursor:"pointer",fontSize:11,padding:2}}>✕</button>
+                  <div style={{display:"flex",gap:4,justifyContent:"center"}}>
+                    <button onClick={()=>confirmRefund(f)} disabled={refunding} title={`Confirm: refund for 25% of $${f.bid}M`} style={{background:"rgba(52,211,153,0.1)",border:"1px solid rgba(52,211,153,0.3)",borderRadius:4,color:"#34d399",cursor:"pointer",fontSize:14,lineHeight:1,padding:"3px 5px"}}>✓</button>
+                    <button onClick={()=>setConfirmingId(null)} title="Cancel" style={{background:"rgba(106,106,126,0.1)",border:"1px solid #2a2a3a",borderRadius:4,color:"#6a6a7e",cursor:"pointer",fontSize:14,lineHeight:1,padding:"3px 5px"}}>✕</button>
                   </div>
                 ) : (
                   <button onClick={()=>{if(refundable){setConfirmingId(f.id);setRefundMsg(null);}}} disabled={!refundable}
                     title={refundable?"Refund this film for 25% of its bid — cannot be undone":refundBlockedReason}
-                    style={{background:"none",border:"none",color:refundable?"#6a6a7e":"#3a3a4e",cursor:refundable?"pointer":"not-allowed",fontSize:11,padding:2}}>↺</button>
+                    style={{background:refundable?"rgba(106,106,126,0.1)":"transparent",border:`1px solid ${refundable?"#3a3a4e":"transparent"}`,borderRadius:4,color:refundable?"#9a9aae":"#3a3a4e",cursor:refundable?"pointer":"not-allowed",fontSize:15,lineHeight:1,padding:"3px 6px"}}>↺</button>
                 )}
               </div>
             )}
           </div>
         );
       })}
+      {refundHistory.length>0&&refundHistory.map(r=>(
+        <div key={r.id} style={{display:"grid",gridTemplateColumns:gridCols,gap:4,padding:"7px 14px",fontSize:12,alignItems:"center",borderBottom:"1px solid #0e0e16",background:"rgba(251,191,36,0.05)"}}>
+          <div style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",color:"#fbbf24",textDecoration:"line-through",fontWeight:600}} title={`Refunded ${new Date(r.refunded_at).toLocaleDateString()} for $${r.credit_amount}M (${Math.round(r.refund_rate_applied*100)}% of $${r.original_bid}M)`}>
+            {r.film_title}
+          </div>
+          <div style={{fontFamily:"monospace",fontSize:11,color:"#fbbf24",textAlign:"right"}}>+${r.credit_amount}M</div>
+          <div style={{fontFamily:"monospace",fontSize:9,color:"#8a6a3e",textAlign:"center",textTransform:"uppercase"}}>Refunded</div>
+          <div style={{fontFamily:"monospace",fontSize:11,color:"#3a3a4e",textAlign:"right"}}>—</div>{isMine&&<div/>}
+        </div>
+      ))}
       {rem&&rem.remaining>0&&(<div style={{display:"grid",gridTemplateColumns:gridCols,gap:4,padding:"7px 14px",fontSize:12,borderTop:"1px solid #1a1a28"}}>
         <div style={{color:"#6a6a7e",fontStyle:"italic"}} title={LEAGUE_CONTEXT?.acquisitions_enabled&&rem.remainderCredit!=null?`$${rem.budgetDefault}M base + $${rem.remainderCredit}M converted from draft leftover${rem.refundCredits?` + $${rem.refundCredits}M from refunds`:""} − $${rem.spent}M spent`:undefined}>
           {LEAGUE_CONTEXT?.acquisitions_enabled?"Acquisitions Budget":"Unspent Budget"}
