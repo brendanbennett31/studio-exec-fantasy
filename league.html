@@ -308,6 +308,21 @@ const BUDGET = 500;
 // Patrick has $9M remaining. Brandon has $0 remaining.
 const REMAINDERS = { BB: { remaining: 18 }, PATRICK: { remaining: 9 }, BRANDON: { remaining: 0 }, RAFA: { remaining: 0 }, KAI: { remaining: 0 } };
 
+// Populated per-league (see loadData's league_picks branch) when
+// acquisitions_enabled is true, via the league_acquisitions_budgets() RPC.
+// REMAINDERS above was never a real dynamic feature -- it's a hand-written
+// constant describing only the original sef-2026 league's specific
+// situation, meaningless for any other league. For a league that's opted
+// into Acquisitions, this replaces it as the one "leftover money" figure:
+// per the rules, unspent Acquisitions budget (which already includes the
+// 25%-converted draft remainder) is what actually rolls into the final
+// total, not the original draft remainder by itself.
+let ACQ_BUDGETS = {};
+function getTeamRemainder(name){
+  if(LEAGUE_CONTEXT?.acquisitions_enabled && ACQ_BUDGETS[name]) return ACQ_BUDGETS[name];
+  return REMAINDERS[name]||null;
+}
+
 const FALLBACK_FILMS=[{title:"Project Hail Mary",bid:87,bo:256218578,team:"BB",release:"2026-03-20",status:"released"},{title:"Ready or Not 2",bid:10,bo:22049311,team:"BRANDON",release:"2026-03-20",status:"released"},{title:"The Super Mario Galaxy Movie",bid:148,bo:307200780,team:"RAFA",release:"2026-04-01",status:"released"},{title:"Lee Cronin's The Mummy",bid:28,bo:0,team:"BRANDON",release:"2026-04-17",status:"upcoming"},{title:"Lorne",bid:10,bo:0,team:"PATRICK",release:"2026-04-17",status:"upcoming"},{title:"Michael",bid:80,bo:0,team:"BRANDON",release:"2026-04-24",status:"upcoming"},{title:"The Devil Wears Prada 2",bid:47,bo:0,team:"RAFA",release:"2026-05-01",status:"upcoming"},{title:"Palme d'Or Winner",bid:14,bo:0,team:"BRANDON",release:"2026-05-12",status:"upcoming"},{title:"I Love Boosters",bid:10,bo:0,team:"BRANDON",release:"2026-05-22",status:"upcoming"},{title:"The Mandalorian and Grogu",bid:75,bo:0,team:"PATRICK",release:"2026-05-22",status:"upcoming"},{title:"Backrooms",bid:27,bo:0,team:"BB",release:"2026-05-29",status:"upcoming"},{title:"Disclosure Day",bid:43,bo:0,team:"RAFA",release:"2026-06-12",status:"upcoming"},{title:"Scary Movie",bid:20,bo:0,team:"KAI",release:"2026-06-12",status:"upcoming"},{title:"Toy Story 5",bid:120,bo:0,team:"BRANDON",release:"2026-06-19",status:"upcoming"},{title:"Supergirl",bid:55,bo:0,team:"RAFA",release:"2026-06-26",status:"upcoming"},{title:"The Invite",bid:17,bo:0,team:"BRANDON",release:"2026-06-26",status:"upcoming"},{title:"Jackass 5",bid:10,bo:0,team:"BRANDON",release:"2026-06-26",status:"upcoming"},{title:"Minions & Monsters",bid:77,bo:0,team:"KAI",release:"2026-07-01",status:"upcoming"},{title:"Moana",bid:92,bo:0,team:"RAFA",release:"2026-07-10",status:"upcoming"},{title:"The Odyssey",bid:180,bo:0,team:"BB",release:"2026-07-17",status:"upcoming"},{title:"Evil Dead Burn",bid:20,bo:0,team:"BRANDON",release:"2026-07-24",status:"upcoming"},{title:"Spider-Man: Brand New Day",bid:130,bo:0,team:"KAI",release:"2026-07-31",status:"upcoming"},{title:"Super Troopers 3",bid:10,bo:0,team:"PATRICK",release:"2026-08-07",status:"upcoming"},{title:"One Night Only",bid:20,bo:0,team:"BRANDON",release:"2026-08-07",status:"upcoming"},{title:"End Of Oak Street",bid:15,bo:0,team:"BB",release:"2026-08-14",status:"upcoming"},{title:"Fjord",bid:19,bo:0,team:"KAI",release:"2026-08-19",status:"upcoming"},{title:"The Dog Stars",bid:10,bo:0,team:"BB",release:"2026-08-28",status:"upcoming"},{title:"How to Rob a Bank",bid:25,bo:0,team:"BRANDON",release:"2026-09-04",status:"upcoming"},{title:"TIFF - People's Choice Award",bid:19,bo:0,team:"BB",release:"2026-09-08",status:"upcoming"},{title:"Practical Magic 2",bid:13,bo:0,team:"RAFA",release:"2026-09-11",status:"upcoming"},{title:"Sense and Sensibility",bid:10,bo:0,team:"BB",release:"2026-09-11",status:"upcoming"},{title:"Resident Evil",bid:32,bo:0,team:"BRANDON",release:"2026-09-18",status:"upcoming"},{title:"Digger",bid:55,bo:0,team:"BB",release:"2026-10-02",status:"upcoming"},{title:"Verity",bid:10,bo:0,team:"KAI",release:"2026-10-02",status:"upcoming"},{title:"The Social Reckoning",bid:58,bo:0,team:"PATRICK",release:"2026-10-09",status:"upcoming"},{title:"Street Fighter",bid:10,bo:0,team:"BRANDON",release:"2026-10-16",status:"upcoming"},{title:"Clayface",bid:12,bo:0,team:"KAI",release:"2026-10-23",status:"tba"},{title:"Shaun the Sheep: Beast of Mossy Bottom",bid:10,bo:0,team:"BB",release:"2026-10-31",status:"upcoming"},{title:"Cat in the Hat",bid:32,bo:0,team:"RAFA",release:"2026-11-06",status:"upcoming"},{title:"Godzilla Minus Zero",bid:14,bo:0,team:"BB",release:"2026-11-06",status:"upcoming"},{title:"Wild Horse Nine",bid:45,bo:0,team:"BRANDON",release:"2026-11-06",status:"upcoming"},{title:"The Great Beyond",bid:31,bo:0,team:"RAFA",release:"2026-11-13",status:"upcoming"},{title:"Hunger Games: Sunrise on the Reaping",bid:60,bo:0,team:"PATRICK",release:"2026-11-20",status:"upcoming"},{title:"Hexed",bid:38,bo:0,team:"BRANDON",release:"2026-11-25",status:"upcoming"},{title:"Focker in Law",bid:11,bo:0,team:"BRANDON",release:"2026-11-25",status:"upcoming"},{title:"Madden",bid:10,bo:0,team:"BB",release:"2026-11-26",status:"upcoming"},{title:"Narnia: The Magician's Nephew",bid:18,bo:0,team:"KAI",release:"2026-11-26",status:"upcoming"},{title:"Avengers: Doomsday",bid:182,bo:0,team:"KAI",release:"2026-12-18",status:"upcoming"},{title:"Dune: Part Three",bid:169,bo:0,team:"PATRICK",release:"2026-12-18",status:"upcoming"},{title:"Angry Birds 3",bid:26,bo:0,team:"PATRICK",release:"2026-12-23",status:"upcoming"},{title:"Werwulf",bid:25,bo:0,team:"BB",release:"2026-12-25",status:"upcoming"},{title:"Jumanji: Open World",bid:60,bo:0,team:"PATRICK",release:"2026-12-25",status:"upcoming"},{title:"Children of Blood and Bone",bid:10,bo:0,team:"BRANDON",release:"2027-01-15",status:"upcoming"},{title:"Beekeeper 2",bid:10,bo:0,team:"RAFA",release:"2027-01-15",status:"upcoming"},{title:"Ice Age - Boiling Point",bid:23,bo:0,team:"PATRICK",release:"2027-02-05",status:"upcoming"},{title:"Gatto",bid:10,bo:0,team:"RAFA",release:"2027-03-05",status:"upcoming"},{title:"All of a Sudden",bid:10,bo:0,team:"KAI",release:null,status:"tba"},{title:"Being Heumann",bid:10,bo:0,team:"KAI",release:null,status:"tba"},{title:"Jack of Spades",bid:19,bo:0,team:"RAFA",release:null,status:"tba"},{title:"Once Upon A Time In Harlem",bid:12,bo:0,team:"KAI",release:null,status:"tba"},{title:"The Adventures of Cliff Booth",bid:10,bo:0,team:"BB",release:null,status:"tba"},{title:"The Entertainment System Is Down",bid:10,bo:0,team:"BB",release:null,status:"tba"}];
 
 // Fallback weekly data — manually updated each week from the spreadsheet.
@@ -1191,6 +1206,35 @@ function App(){
             });
             EXEC_COLORS = newColors;
             DISPLAY = newDisplay;
+
+            // Real per-team Acquisitions budget breakdown, replacing the
+            // legacy hardcoded REMAINDERS for any league that's opted in
+            // (see getTeamRemainder() above).
+            if(LEAGUE_CONTEXT?.acquisitions_enabled){
+              try{
+                const session2=getSession();
+                const budgetRes=await fetch(`${SUPABASE_URL}/rest/v1/rpc/league_acquisitions_budgets`,{
+                  method:"POST",
+                  headers:{"apikey":SUPABASE_ANON_KEY,"Authorization":`Bearer ${session2?.access_token||SUPABASE_ANON_KEY}`,"Content-Type":"application/json"},
+                  body:JSON.stringify({p_league_id:LEAGUE_UUID})
+                });
+                if(budgetRes.ok){
+                  const budgetRows=await budgetRes.json();
+                  const newAcqBudgets={};
+                  (budgetRows||[]).forEach(r=>{
+                    newAcqBudgets[r.team_name]={
+                      remaining: Number(r.remaining),
+                      budgetDefault: Number(r.budget_default),
+                      remainderCredit: Number(r.remainder_credit),
+                      refundCredits: Number(r.refund_credits),
+                      spent: Number(r.spent),
+                    };
+                  });
+                  ACQ_BUDGETS=newAcqBudgets;
+                }
+              }catch(e){ console.warn("[acquisitions] budgets fetch failed:", e.message); }
+            }
+
             setFilms(films);
             setLiveStatus("live");
             slateLoaded=true;
@@ -1259,7 +1303,8 @@ function App(){
     Object.keys(EXEC_COLORS).forEach(t=>{execs[t]={name:t,films:[],totalSpent:0,totalBO:0,filmCount:0}});
     films.forEach(f=>{const e=execs[f.team];if(!e)return;e.films.push(f);e.totalSpent+=f.bid;e.totalBO+=f.bo;e.filmCount++});
     Object.values(execs).forEach(e=>{
-      e.remaining=REMAINDERS[e.name]?REMAINDERS[e.name].remaining:0;
+      const eRem=getTeamRemainder(e.name);
+      e.remaining=eRem?eRem.remaining:0;
       e.grandTotal=e.totalBO+e.remaining*1e6;
       // POI: BO earned / money committed (released + voided)
       // Voided films add to the spend denominator (dead money) but contribute $0 BO
@@ -1270,7 +1315,7 @@ function App(){
       // Add voided bids to denominator only — they earned nothing
       poiSpend+=voidedFilms.reduce((s,f)=>s+f.bid,0);
       // Add remainder to both (matches sheet behavior)
-      const rem=REMAINDERS[e.name];
+      const rem=getTeamRemainder(e.name);
       if(rem&&rem.remaining>0){
         poiBO+=rem.remaining*1e6;
         poiSpend+=rem.remaining;
@@ -1905,7 +1950,7 @@ function SlateDrawer({exec,studioNames,myTeam}){
   const[refunding,setRefunding]=useState(false);
   const[refundMsg,setRefundMsg]=useState(null);
   const films=[...exec.films].sort((a,b)=>sortMode==="bid"?b.bid-a.bid:(!a.release?1:!b.release?-1:new Date(a.release)-new Date(b.release)));
-  const rem=REMAINDERS[exec.name];
+  const rem=getTeamRemainder(exec.name);
   // Refunds only make sense on your own slate, in a league that's opted
   // into Acquisitions (LEAGUE_CONTEXT read directly rather than threaded
   // as a prop, matching how EXEC_COLORS/DISPLAY are already read in nested
@@ -1949,7 +1994,12 @@ function SlateDrawer({exec,studioNames,myTeam}){
         const rd=f.release?parseReleaseDate(f.release):null;
         const rs=rd?`${rd.getMonth()+1}/${rd.getDate()}`:"—";
         const daysToRelease=f.release?Math.ceil((parseReleaseDate(f.release)-new Date())/864e5):null;
-        const refundable=isMine&&f.imdb_id&&!f.voided&&(daysToRelease===null||daysToRelease>=14);
+        const refundBlockedReason = !f.imdb_id ? "A blind Festival Futures pick can't be refunded until it resolves to a real film"
+          : f.voided ? "Voided picks can't be refunded"
+          : (daysToRelease!==null&&daysToRelease<0) ? "This film has already released"
+          : (daysToRelease!==null&&daysToRelease<14) ? "Must be refunded at least 14 days before release"
+          : null;
+        const refundable=isMine&&!refundBlockedReason;
         return(
           <div key={i} style={{display:"grid",gridTemplateColumns:gridCols,gap:4,padding:"7px 14px",fontSize:12,alignItems:"center",borderBottom:"1px solid #0e0e16",background:f.voided?"rgba(239,68,68,0.04)":isReleaseDay(f.release)?"rgba(212,168,67,0.04)":"transparent",opacity:f.locked?0.65:f.voided?0.75:1}}>
             <div style={{minWidth:0}}>
@@ -1985,15 +2035,22 @@ function SlateDrawer({exec,studioNames,myTeam}){
                     <button onClick={()=>confirmRefund(f)} disabled={refunding} title={`Confirm: refund for 25% of $${f.bid}M`} style={{background:"none",border:"none",color:"#34d399",cursor:"pointer",fontSize:11,padding:2}}>✓</button>
                     <button onClick={()=>setConfirmingId(null)} title="Cancel" style={{background:"none",border:"none",color:"#6a6a7e",cursor:"pointer",fontSize:11,padding:2}}>✕</button>
                   </div>
-                ) : refundable ? (
-                  <button onClick={()=>{setConfirmingId(f.id);setRefundMsg(null);}} title="Refund this film for 25% of its bid — cannot be undone" style={{background:"none",border:"none",color:"#6a6a7e",cursor:"pointer",fontSize:11,padding:2}}>↺</button>
-                ) : null}
+                ) : (
+                  <button onClick={()=>{if(refundable){setConfirmingId(f.id);setRefundMsg(null);}}} disabled={!refundable}
+                    title={refundable?"Refund this film for 25% of its bid — cannot be undone":refundBlockedReason}
+                    style={{background:"none",border:"none",color:refundable?"#6a6a7e":"#3a3a4e",cursor:refundable?"pointer":"not-allowed",fontSize:11,padding:2}}>↺</button>
+                )}
               </div>
             )}
           </div>
         );
       })}
-      {rem&&rem.remaining>0&&(<div style={{display:"grid",gridTemplateColumns:gridCols,gap:4,padding:"7px 14px",fontSize:12,borderTop:"1px solid #1a1a28"}}><div style={{color:"#6a6a7e",fontStyle:"italic"}}>Unspent Budget</div><div style={{fontFamily:"monospace",fontSize:11,color:"#6a6a7e",textAlign:"right"}}>${rem.remaining}M</div><div/><div style={{fontFamily:"monospace",fontSize:11,color:"#3a3a4e",textAlign:"right"}}>—</div>{isMine&&<div/>}</div>)}
+      {rem&&rem.remaining>0&&(<div style={{display:"grid",gridTemplateColumns:gridCols,gap:4,padding:"7px 14px",fontSize:12,borderTop:"1px solid #1a1a28"}}>
+        <div style={{color:"#6a6a7e",fontStyle:"italic"}} title={LEAGUE_CONTEXT?.acquisitions_enabled&&rem.remainderCredit!=null?`$${rem.budgetDefault}M base + $${rem.remainderCredit}M converted from draft leftover${rem.refundCredits?` + $${rem.refundCredits}M from refunds`:""} − $${rem.spent}M spent`:undefined}>
+          {LEAGUE_CONTEXT?.acquisitions_enabled?"Acquisitions Budget":"Unspent Budget"}
+        </div>
+        <div style={{fontFamily:"monospace",fontSize:11,color:"#6a6a7e",textAlign:"right"}}>${rem.remaining}M</div><div/><div style={{fontFamily:"monospace",fontSize:11,color:"#3a3a4e",textAlign:"right"}}>—</div>{isMine&&<div/>}
+      </div>)}
     </div>
   );
 }
@@ -2261,7 +2318,7 @@ function Slates({data,studioNames,expandedExecs,setExpandedExecs}){
   return(<div>{data.ranked.map(exec=>{
     const isOpen=expandedExecs.has(exec.name);const mode=sortMode[exec.name]||"release";
     const films=[...exec.films].sort((a,b)=>mode==="bid"?b.bid-a.bid:mode==="release"?(!a.release?1:!b.release?-1:new Date(a.release)-new Date(b.release)):0);
-    const rem=REMAINDERS[exec.name];
+    const rem=getTeamRemainder(exec.name);
     return(<div key={exec.name} style={{marginBottom:6}}>
       <button onClick={()=>toggle(exec.name)} style={{width:"100%",display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,padding:"12px 14px",background:"#111119",border:"1px solid #222233",borderRadius:isOpen?"10px 10px 0 0":10,cursor:"pointer",color:"#e8e8f0",textAlign:"left"}}>
         <div style={{flex:1,minWidth:0,display:"flex",flexDirection:"column",gap:3}}>
@@ -2292,7 +2349,7 @@ function Slates({data,studioNames,expandedExecs,setExpandedExecs}){
             <div style={{fontFamily:"monospace",fontSize:10,color:"#4a4a5e",textAlign:"center"}}>{rs}</div>
             <div style={{fontFamily:"monospace",fontSize:11,color:f.bo>0?"#34d399":"#3a3a4e",textAlign:"right"}}>{f.bo>0?fmt(f.bo):"—"}</div>
           </div>)})}
-        {rem&&rem.remaining>0&&(<div style={{display:"grid",gridTemplateColumns:"1fr 50px 50px 80px",gap:4,padding:"7px 14px",fontSize:13,borderTop:"1px solid #222233"}}><div style={{color:"#6a6a7e",fontStyle:"italic"}}>Unspent Budget</div><div style={{fontFamily:"monospace",fontSize:11,color:"#6a6a7e",textAlign:"right"}}>${rem.remaining}M</div><div/><div style={{fontFamily:"monospace",fontSize:11,color:"#3a3a4e",textAlign:"right"}}>—</div></div>)}
+        {rem&&rem.remaining>0&&(<div style={{display:"grid",gridTemplateColumns:"1fr 50px 50px 80px",gap:4,padding:"7px 14px",fontSize:13,borderTop:"1px solid #222233"}}><div style={{color:"#6a6a7e",fontStyle:"italic"}}>{LEAGUE_CONTEXT?.acquisitions_enabled?"Acquisitions Budget":"Unspent Budget"}</div><div style={{fontFamily:"monospace",fontSize:11,color:"#6a6a7e",textAlign:"right"}}>${rem.remaining}M</div><div/><div style={{fontFamily:"monospace",fontSize:11,color:"#3a3a4e",textAlign:"right"}}>—</div></div>)}
       </div>)}
     </div>)})}</div>);
 }
@@ -2859,7 +2916,7 @@ function ExecBarSection({exec,ei,children}){
 
 function BudgetDonut({exec}){
   const films=[...exec.films].sort((a,b)=>b.bid-a.bid);
-  const rem=REMAINDERS[exec.name];const remaining=rem?rem.remaining:exec.remaining;
+  const rem=getTeamRemainder(exec.name);const remaining=rem?rem.remaining:exec.remaining;
   const total=exec.totalSpent+remaining;const cx=56,cy=56;
   let cumAngle=0;const[hoverFilm,setHoverFilm]=useState(null);
   const[donutRef,inView]=useInView(0.3);
@@ -2896,7 +2953,7 @@ function BudgetDonut({exec}){
 // ─── BO SHARE DONUT — earnings + unspent budget share ──────────────────
 function BOShareDonut({exec}){
   const releasedFilms=[...exec.films].filter(f=>f.bo>0).sort((a,b)=>b.bo-a.bo);
-  const rem=REMAINDERS[exec.name];
+  const rem=getTeamRemainder(exec.name);
   const remaining=(rem&&rem.remaining>0)?rem.remaining:0;
   const totalBO=exec.totalBO;
   const cx=56,cy=56;
@@ -3630,6 +3687,15 @@ function AcquisitionWindowBanner({week,phase,declared}){
   );
 }
 
+// Mirrors league_season_window() (migrations 024) and
+// UniverseFilmsScraper.gs's UF_SEASON_WINDOWS -- same duplication-over-
+// shared-module approach already used everywhere in this file. Add a
+// season here (and to the other two copies) once its window is confirmed.
+function seasonWindowFor(season){
+  const windows={"2026":{start:"2026-03-16",end:"2027-03-14"},"2027":{start:"2027-03-15",end:"2028-03-05"}};
+  return windows[String(season)]||null;
+}
+
 function AcquisitionsTab({leagueContext,members,userMembership}){
   const l=leagueContext||{};
   const isAdmin=userMembership?.role==="admin";
@@ -3726,10 +3792,17 @@ function AcquisitionsTab({leagueContext,members,userMembership}){
   }
 
   function getVisibleBidCandidates(){
+    const window=seasonWindowFor(l.season);
     let list=universeFilms.filter(f=>{
       if(!f.imdb_id||existingImdbIds.has(f.imdb_id)) return false;
-      if(f.release_date&&new Date(f.release_date)<=now) return false;
+      // Acquisitions needs a known release date (unlike the initial draft,
+      // which allows manually-entered estimated dates) -- can't verify a
+      // TBA film is in-season, and submit_acquisition_bid() rejects it
+      // server-side anyway.
+      if(!f.release_date) return false;
+      if(new Date(f.release_date)<=now) return false;
       if(f.festival_protected_until&&new Date(f.festival_protected_until)>now) return false;
+      if(window&&(f.release_date<window.start||f.release_date>window.end)) return false;
       return true;
     });
     if(bidSearch.trim()){
