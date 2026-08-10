@@ -104,7 +104,7 @@ body.endgame::after{
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
 <script type="text/babel">
-const { useState, useMemo, useEffect, useRef, useCallback } = React;
+const { useState, useMemo, useEffect, useLayoutEffect, useRef, useCallback } = React;
 
 // ── Supabase config ───────────────────────────────────────────────────────────
 const SUPABASE_URL = "https://fymkwkbatklfynnhxrsf.supabase.co";
@@ -2044,27 +2044,33 @@ function TickerNumber({value, duration=1800, formatter=v=>v}){
 }
 
 // ─── STANDINGS with BO/POI toggle + inline slate dropdowns ──────────────────
-// Stores previous day's ranks in localStorage to detect position changes
-const RANK_KEY_STABLE='sef_ranks_stable';
-const RANK_KEY_PREV='sef_ranks_prev';
+// Stores previous day's ranks in localStorage to detect position changes.
+// BO and ROI are separate rankings (grand total vs. POI%), so each gets its
+// own pair of storage keys -- a BO rank change and a ROI rank change are
+// unrelated events and need independent 24h windows.
+const RANK_KEYS_BO={stable:'sef_ranks_stable',prev:'sef_ranks_prev'};
+const RANK_KEYS_POI={stable:'sef_ranks_stable_poi',prev:'sef_ranks_prev_poi'};
 const RANK_WINDOW_MS=24*60*60*1000; // 24 hours
-// Bump this whenever a change to how standings/totals are computed could
-// make an old browser's cached snapshot incompatible (e.g. the 2026-08-01
-// box-office-centralization migration, which rewrote every league's
-// underlying totals at once and made every stored snapshot look like a
-// full-board reshuffle happened, even though nothing "moved" day-over-day
-// in the sense this feature is meant to track). A version mismatch is
-// treated the same as no snapshot at all -- silently re-baseline, no badges.
-const RANK_SCHEMA_VERSION=2;
+// Bump this whenever a change to how standings/totals (or this tracking
+// logic itself) could make an old browser's cached snapshot incompatible or
+// stuck in a bad state (e.g. the 2026-08-01 box-office-centralization
+// migration, which rewrote every league's underlying totals at once and
+// made every stored snapshot look like a full-board reshuffle happened,
+// even though nothing "moved" day-over-day in the sense this feature is
+// meant to track). A version mismatch is treated the same as no snapshot at
+// all -- silently re-baseline, no badges, no animation.
+const RANK_SCHEMA_VERSION=3;
 
-// Pure read — computes changes from localStorage, no side effects
-function getRankChanges(ranked){
+// Pure read — computes changes from localStorage, no side effects.
+// rankField is "rank" for Box Office or "poiRank" for ROI; keys picks which
+// pair of storage keys (RANK_KEYS_BO/RANK_KEYS_POI) to read.
+function getRankChanges(ranked,rankField,keys){
   const current={};
-  ranked.forEach(e=>{current[e.name]=e.rank;});
+  ranked.forEach(e=>{current[e.name]=e[rankField];});
   let stable=null,prev=null;
   try{
-    const s=localStorage.getItem(RANK_KEY_STABLE);
-    const p=localStorage.getItem(RANK_KEY_PREV);
+    const s=localStorage.getItem(keys.stable);
+    const p=localStorage.getItem(keys.prev);
     if(s) stable=JSON.parse(s);
     if(p) prev=JSON.parse(p);
   }catch(e){}
@@ -2072,14 +2078,14 @@ function getRankChanges(ranked){
   if(prev&&prev.v!==RANK_SCHEMA_VERSION) prev=null;
   if(!stable) return {};
   const stableRanks=stable.ranks||{};
-  const hasChanged=ranked.some(e=>stableRanks[e.name]!==undefined&&stableRanks[e.name]!==e.rank);
+  const hasChanged=ranked.some(e=>stableRanks[e.name]!==undefined&&stableRanks[e.name]!==e[rankField]);
   const withinWindow=Date.now()-(stable.timestamp||0)<RANK_WINDOW_MS;
   if(!hasChanged&&!withinWindow) return {};
   const refRanks=hasChanged?stableRanks:(prev&&prev.ranks)||stableRanks;
   const changes={};
   ranked.forEach(e=>{
-    if(refRanks[e.name]!==undefined&&refRanks[e.name]!==e.rank){
-      changes[e.name]=refRanks[e.name]-e.rank;
+    if(refRanks[e.name]!==undefined&&refRanks[e.name]!==e[rankField]){
+      changes[e.name]=refRanks[e.name]-e[rankField];
     }
   });
   console.log("[ranks] changes detected:",JSON.stringify(changes),"hasChanged:",hasChanged,"withinWindow:",withinWindow);
@@ -2087,28 +2093,113 @@ function getRankChanges(ranked){
 }
 
 // Write only — commits current ranks to localStorage (call once per session after live data)
-function commitRankStorage(ranked){
+function commitRankStorage(ranked,rankField,keys){
   const current={};
-  ranked.forEach(e=>{current[e.name]=e.rank;});
+  ranked.forEach(e=>{current[e.name]=e[rankField];});
   let stable=null;
-  try{const s=localStorage.getItem(RANK_KEY_STABLE);if(s)stable=JSON.parse(s);}catch(e){}
+  try{const s=localStorage.getItem(keys.stable);if(s)stable=JSON.parse(s);}catch(e){}
   if(stable&&stable.v!==RANK_SCHEMA_VERSION) stable=null;
   if(!stable){
     // First ever load (or an old-schema snapshot we're discarding) —
     // initialize with old timestamp so no animation on first visit
-    try{localStorage.setItem(RANK_KEY_STABLE,JSON.stringify({ranks:current,timestamp:Date.now()-RANK_WINDOW_MS-1,v:RANK_SCHEMA_VERSION}));}catch(e){}
+    try{localStorage.setItem(keys.stable,JSON.stringify({ranks:current,timestamp:Date.now()-RANK_WINDOW_MS-1,v:RANK_SCHEMA_VERSION}));}catch(e){}
     console.log("[ranks] initialized stable storage");
     return;
   }
   const stableRanks=stable.ranks||{};
-  const hasChanged=ranked.some(e=>stableRanks[e.name]!==undefined&&stableRanks[e.name]!==e.rank);
+  const hasChanged=ranked.some(e=>stableRanks[e.name]!==undefined&&stableRanks[e.name]!==e[rankField]);
   if(hasChanged){
     try{
-      localStorage.setItem(RANK_KEY_PREV,JSON.stringify({ranks:stableRanks,v:RANK_SCHEMA_VERSION}));
-      localStorage.setItem(RANK_KEY_STABLE,JSON.stringify({ranks:current,timestamp:Date.now(),v:RANK_SCHEMA_VERSION}));
+      localStorage.setItem(keys.prev,JSON.stringify({ranks:stableRanks,v:RANK_SCHEMA_VERSION}));
+      localStorage.setItem(keys.stable,JSON.stringify({ranks:current,timestamp:Date.now(),v:RANK_SCHEMA_VERSION}));
     }catch(e){}
     console.log("[ranks] committed new stable — ranks changed:",JSON.stringify(stableRanks),"→",JSON.stringify(current));
   }
+}
+
+// Shared FLIP-style reorder animation for both standings views (BO and
+// ROI). Handles: computing+committing rank changes once real data is in,
+// and sliding each card from its old position to its new one when a
+// change is detected.
+//
+// History: this used to live duplicated/inline in StandingsBO only, with a
+// useEffect with an empty [] dependency array that ran once at mount --
+// before real rankChanges had ever been computed (that happens in a
+// SEPARATE effect gated on liveStatus, after the async data fetch
+// resolves). So it always saw hasAnyChange=false, set its "already played"
+// ref, and never ran again -- the slide animation silently never fired
+// after the very first sessions where the timing happened to line up.
+// This version reacts to rankChanges actually changing instead of running
+// once blindly.
+//
+// The "before" phase render (oldOrder, no transform) happens inside a
+// useLayoutEffect specifically so it lands in the SAME commit as the state
+// update that revealed the change -- otherwise the browser would paint one
+// frame of the final reshuffled order, then jump back to the old order to
+// start the slide, which is exactly the jump/flicker this used to have.
+function useRankFlipAnimation(ranked,liveStatus,rankField,keys){
+  const[rankChanges,setRankChanges]=useState({});
+  const committedRef=useRef(false);
+  useEffect(()=>{
+    if(committedRef.current||liveStatus==="loading"||ranked.length===0) return;
+    committedRef.current=true;
+    setRankChanges(getRankChanges(ranked,rankField,keys));
+    commitRankStorage(ranked,rankField,keys);
+  },[liveStatus,ranked,rankField,keys]);
+
+  const hasAnyChange=Object.keys(rankChanges).length>0;
+  const sig=hasAnyChange?JSON.stringify(rankChanges):null;
+
+  const[phase,setPhase]=useState("done"); // "before" | "animate" | "done"
+  const cardRefs=useRef({});
+  const deltaRef=useRef({});
+  const animatedSigRef=useRef(null);
+
+  // Old order: undo each exec's known rank delta to get where it sat
+  // before the change, so cards can start there and slide into today's spot.
+  const oldOrder=useMemo(()=>[...ranked].sort((a,b)=>{
+    const oa=a[rankField]-(rankChanges[a.name]||0);
+    const ob=b[rankField]-(rankChanges[b.name]||0);
+    return oa-ob;
+  }),[ranked,rankChanges,rankField]);
+
+  useLayoutEffect(()=>{
+    if(!sig||animatedSigRef.current===sig) return;
+    animatedSigRef.current=sig;
+    setPhase("before");
+  },[sig]);
+
+  useEffect(()=>{
+    if(phase!=="before") return;
+    const raf=requestAnimationFrame(()=>{
+      const tops={};
+      Object.entries(cardRefs.current).forEach(([name,el])=>{
+        if(el) tops[name]=el.getBoundingClientRect().top;
+      });
+      // Cards are currently laid out in oldOrder (no transform yet), so the
+      // slot for this exec's NEW rank is simply oldOrder[rank-1]'s current
+      // position -- the delta is just that slot's top minus this card's own.
+      const deltas={};
+      ranked.forEach(exec=>{
+        const slotExec=oldOrder[exec[rankField]-1];
+        const targetTop=slotExec?tops[slotExec.name]:undefined;
+        const myTop=tops[exec.name];
+        deltas[exec.name]=(targetTop!=null&&myTop!=null)?targetTop-myTop:0;
+      });
+      deltaRef.current=deltas;
+      setPhase("animate");
+    });
+    return()=>cancelAnimationFrame(raf);
+  },[phase,ranked,oldOrder,rankField]);
+
+  useEffect(()=>{
+    if(phase!=="animate") return;
+    const t=setTimeout(()=>setPhase("done"),720);
+    return()=>clearTimeout(t);
+  },[phase]);
+
+  const isAnimating=phase==="before"||phase==="animate";
+  return {displayOrder:isAnimating?oldOrder:ranked,phase,rankChanges,cardRefs,deltaRef};
 }
 function StandingsTab({data,studioNames,expandedExecs,setExpandedExecs,liveStatus,myTeam}){
   const[mode,setMode]=useState("bo");
@@ -2124,8 +2215,8 @@ function StandingsTab({data,studioNames,expandedExecs,setExpandedExecs,liveStatu
         ))}
       </div>
       {mode==="bo"
-        ?<StandingsBO data={data} studioNames={studioNames} expandedExecs={expandedExecs} toggleExec={toggleExec} previewChanges={null} liveStatus={liveStatus} myTeam={myTeam}/>
-        :<StandingsPOI data={data} studioNames={studioNames} expandedExecs={expandedExecs} toggleExec={toggleExec} myTeam={myTeam}/>
+        ?<StandingsBO data={data} studioNames={studioNames} expandedExecs={expandedExecs} toggleExec={toggleExec} liveStatus={liveStatus} myTeam={myTeam}/>
+        :<StandingsPOI data={data} studioNames={studioNames} expandedExecs={expandedExecs} toggleExec={toggleExec} liveStatus={liveStatus} myTeam={myTeam}/>
       }
     </div>
   );
@@ -2265,13 +2356,9 @@ function SlateDrawer({exec,studioNames,myTeam}){
   );
 }
 
-function StandingsBO({data,studioNames,expandedExecs,toggleExec,previewChanges,liveStatus,myTeam}){
+function StandingsBO({data,studioNames,expandedExecs,toggleExec,liveStatus,myTeam}){
   const{ranked}=data;
   const maxGT=Math.max(...ranked.map(e=>e.grandTotal));
-
-  // Rank changes: computed once after live data arrives, never from fallback
-  const[realChanges,setRealChanges]=useState({});
-  const committedRef=useRef(false);
   const[myCardFlash,setMyCardFlash]=useState(false);
 
   // Flash the current user's card once data is ready (no scroll)
@@ -2284,87 +2371,8 @@ function StandingsBO({data,studioNames,expandedExecs,toggleExec,previewChanges,l
     return()=>clearTimeout(timer);
   },[myTeam,ranked.length]);
 
-  useEffect(()=>{
-    // Wait for live data (or fallback if fetch failed) before computing/committing
-    if(committedRef.current) return;
-    if(liveStatus==="loading") return;
-    if(ranked.length===0) return;
-    committedRef.current=true;
-    const changes=getRankChanges(ranked);
-    setRealChanges(changes);
-    commitRankStorage(ranked);
-    console.log("[ranks] committed after liveStatus:",liveStatus,"changes:",JSON.stringify(changes));
-  },[liveStatus,ranked]);
-
-  const rankChanges=previewChanges||realChanges;
-  const hasAnyChange=Object.keys(rankChanges).length>0;
-
-  // phase: "before" → "animate" → "done"
-  const[phase,setPhase]=useState("done");
-  const playedRef=useRef(false);
-  const cardRefs=useRef({});
-  const deltaRef=useRef({});
-
-  // Old order for animation (sort by pre-change ranks)
-  const oldOrder=useMemo(()=>[...ranked].sort((a,b)=>{
-    const oa=a.rank-(rankChanges[a.name]||0);
-    const ob=b.rank-(rankChanges[b.name]||0);
-    return oa-ob;
-  }),[rankChanges,ranked]);
-
-  // Trigger animation when rankChanges updates (after live data)
-  useEffect(()=>{
-    if(!hasAnyChange||playedRef.current){return;}
-    playedRef.current=true;
-    setPhase("before");
-
-    requestAnimationFrame(()=>{
-      requestAnimationFrame(()=>{
-        // Phase 2: measure where each card currently sits
-        // Then measure where it WILL sit in new order by temporarily reading positions
-        const positions={};
-        Object.entries(cardRefs.current).forEach(([name,el])=>{
-          if(el) positions[name]=el.getBoundingClientRect().top;
-        });
-
-        // Render in NEW order (done), then measure new positions, compute delta, apply inverse
-        // Actually: we stay in old order but compute delta from rank difference × real card heights
-        // We do this by looking at the sorted old positions and new rank targets
-        const sortedByOldRank=oldOrder.map(e=>({name:e.name,top:positions[e.name]||0}));
-        const sortedByNewRank=[...oldOrder].sort((a,b)=>a.rank-b.rank)
-          .map(e=>({name:e.name,top:positions[e.name]||0}));
-
-        // Build a map: for each exec, what y-offset do they need?
-        const newTopByName={};
-        sortedByNewRank.forEach((e,newIdx)=>{
-          // The card that SHOULD be at newIdx is sortedByNewRank[newIdx]
-          // Find where that slot's y position is from sortedByOldRank
-          newTopByName[e.name]=sortedByOldRank[newIdx]?.top||0;
-        });
-
-        const deltas={};
-        oldOrder.forEach(exec=>{
-          const currentTop=positions[exec.name]||0;
-          // Where does this card need to go?
-          // It needs to move to where its new rank slot is
-          const newRankIdx=exec.rank-1;
-          const targetTop=sortedByOldRank[newRankIdx]?.top||currentTop;
-          deltas[exec.name]=targetTop-currentTop;
-        });
-        deltaRef.current=deltas;
-
-        // Phase 3: apply transforms (from current pos toward target)
-        setPhase("animate");
-
-        // Phase 4: after transition, snap to clean layout
-        const done=setTimeout(()=>setPhase("done"),820);
-        return()=>clearTimeout(done);
-      });
-    });
-  },[]);
-
-  const isAnimating=phase==="before"||phase==="animate";
-  const displayOrder=isAnimating?oldOrder:ranked;
+  const{displayOrder,phase,rankChanges,cardRefs,deltaRef}=useRankFlipAnimation(ranked,liveStatus,"rank",RANK_KEYS_BO);
+  const isAnimating=phase!=="done";
 
   return(
     <div>
@@ -2479,15 +2487,47 @@ function StandingsBO({data,studioNames,expandedExecs,toggleExec,previewChanges,l
   );
 }
 
-function StandingsPOI({data,studioNames,expandedExecs,toggleExec,myTeam}){
+function StandingsPOI({data,studioNames,expandedExecs,toggleExec,liveStatus,myTeam}){
   const{poiRanked}=data;
+  const{displayOrder,phase,rankChanges,cardRefs,deltaRef}=useRankFlipAnimation(poiRanked,liveStatus,"poiRank",RANK_KEYS_POI);
+  const isAnimating=phase!=="done";
   return(
     <div>
-      {poiRanked.map(exec=>{
-        const isOpen=expandedExecs&&expandedExecs.has(exec.name);
-        return(<div key={exec.name}>
-          <div onClick={()=>toggleExec(exec.name)} style={{display:"grid",gridTemplateColumns:"36px 1fr auto auto",gap:12,alignItems:"center",padding:"14px 16px",background:"#111119",border:`1px solid ${exec.poiRank===1?"rgba(212,168,67,0.35)":"#222233"}`,borderRadius:isOpen?"10px 10px 0 0":10,marginBottom:isOpen?0:6,borderLeft:`3px solid ${exec.poiRank<=3?["#d4a843","#9ca3af","#cd7f32"][exec.poiRank-1]:"#222233"}`,cursor:"pointer",userSelect:"none"}}>
-            <div style={{fontSize:28,fontWeight:900,color:exec.poiRank===1?"#d4a843":"#4a4a5e",textAlign:"center",lineHeight:1}}>{exec.poiRank}</div>
+      {displayOrder.map(exec=>{
+        const isOpen=phase==="done"&&expandedExecs&&expandedExecs.has(exec.name);
+        const change=rankChanges[exec.name]||0;
+        const hasChange=change!==0;
+        const rose=change>0;
+        const dy=phase==="animate"?(deltaRef.current[exec.name]||0):0;
+        return(
+          <div
+            key={exec.name}
+            ref={el=>cardRefs.current[exec.name]=el}
+            style={{
+              marginBottom:6,
+              position:"relative",
+              zIndex:rose&&isAnimating?10:1,
+              transform:phase==="animate"?`translateY(${dy}px)`:"none",
+              transition:phase==="animate"?"transform 0.72s ease-in-out":"none",
+              willChange:phase==="animate"?"transform":"auto",
+            }}
+          >
+          <div onClick={()=>phase==="done"&&toggleExec(exec.name)} style={{display:"grid",gridTemplateColumns:"36px 1fr auto auto",gap:12,alignItems:"center",padding:"14px 16px",background:"#111119",border:`1px solid ${exec.poiRank===1?"rgba(212,168,67,0.35)":"#222233"}`,borderRadius:isOpen?"10px 10px 0 0":10,borderLeft:`3px solid ${exec.poiRank<=3?["#d4a843","#9ca3af","#cd7f32"][exec.poiRank-1]:"#222233"}`,cursor:phase==="done"?"pointer":"default",userSelect:"none"}}>
+            <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
+              <div style={{fontSize:28,fontWeight:900,color:exec.poiRank===1?"#d4a843":"#4a4a5e",textAlign:"center",lineHeight:1}}>{exec.poiRank}</div>
+              {hasChange&&(
+                <div style={{
+                  fontSize:9,fontWeight:700,fontFamily:"monospace",
+                  color:rose?"#34d399":"#f87171",
+                  background:rose?"rgba(52,211,153,0.12)":"rgba(248,113,113,0.12)",
+                  border:`1px solid ${rose?"rgba(52,211,153,0.35)":"rgba(248,113,113,0.35)"}`,
+                  borderRadius:4,padding:"1px 5px",
+                  display:"flex",alignItems:"center",gap:2,lineHeight:1.4,
+                }}>
+                  {rose?"▲":"▼"}{Math.abs(change)}
+                </div>
+              )}
+            </div>
             <div style={{minWidth:0}}><div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"nowrap",minWidth:0}}><div style={{width:10,height:10,borderRadius:"50%",background:EXEC_COLORS[exec.name],flexShrink:0}}/><span style={{fontWeight:800,fontSize:16,flexShrink:0}}>{PLAYER_NAMES[exec.name]}</span><span style={{fontSize:11,color:"#6a6a7e",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",minWidth:0}}>{IS_LEGACY?studioNames[exec.name]:DISPLAY[exec.name]}</span><span style={{fontSize:10,color:"#4a4a5e",fontFamily:"monospace",flexShrink:0,whiteSpace:"nowrap"}}>· {exec.filmCount}</span></div>
               <div style={{display:"flex",gap:12,marginTop:5,fontSize:11,color:"#6a6a7e",fontFamily:"monospace",flexWrap:"wrap"}}>
                 {(()=>{
@@ -2506,7 +2546,8 @@ function StandingsPOI({data,studioNames,expandedExecs,toggleExec,myTeam}){
             <div style={{color:"#6a6a7e",fontSize:12,flexShrink:0,width:20,textAlign:"center"}}>{isOpen?"▲":"▼"}</div>
           </div>
           {isOpen&&<SlateDrawer exec={exec} studioNames={studioNames} myTeam={myTeam}/>}
-        </div>);
+          </div>
+        );
       })}
       <div style={{background:"#111119",border:"1px solid #222233",borderRadius:10,padding:16,marginTop:12,fontSize:12,color:"#6a6a7e"}}>
         <strong style={{color:"#9a9ab0"}}>How POI works:</strong> Total domestic box office ÷ total auction spend across your entire slate. Matches the % Return on Investment chart in Trends. 100% means you've earned back exactly what you spent. Above 100% = profit territory.
