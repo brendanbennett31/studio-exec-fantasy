@@ -227,7 +227,7 @@ header{position:sticky;top:0;z-index:50;height:60px;padding:0 32px;display:flex;
     <div class="form-row">
       <div class="form-group">
         <label class="form-label">Season Year</label>
-        <input class="form-input" type="number" id="cl-season" value="2026" min="2024" max="2040"/>
+        <input class="form-input" type="number" id="cl-season" value="2026" min="2024" max="2040" onchange="onCreateLeagueSeasonChange()"/>
       </div>
       <div class="form-group">
         <label class="form-label">Number of Players</label>
@@ -576,6 +576,17 @@ async function init() {
   if (_dname) _dname.textContent = currentProfile.display_name || '—';
   if (_demail) _demail.textContent = currentSession?.user?.email || '—';
 
+  // Season year floor: can't create a league for a year before the current
+  // one. Sets both the native min (a soft hint -- browsers/users can still
+  // type past it) and the field's default value, so a fresh Create League
+  // open doesn't default to an already-stale year once 2026 has passed.
+  const _clSeasonInput = document.getElementById('cl-season');
+  if (_clSeasonInput) {
+    const _thisYear = new Date().getFullYear();
+    _clSeasonInput.min = _thisYear;
+    if (parseInt(_clSeasonInput.value) < _thisYear) _clSeasonInput.value = _thisYear;
+  }
+
   // Load league memberships
   await loadLeagues();
   await loadNotificationBadges();
@@ -748,6 +759,11 @@ async function handleCreateLeague() {
 
   if (!name) {
     errEl.textContent = 'Please give your league a name.';
+    errEl.classList.add('show');
+    return;
+  }
+  if (parseInt(season) < new Date().getFullYear()) {
+    errEl.textContent = `Season year can't be before ${new Date().getFullYear()}.`;
     errEl.classList.add('show');
     return;
   }
@@ -1039,6 +1055,46 @@ function closeModal(id) {
   document.getElementById(id).classList.remove('open');
   document.body.style.overflow = '';
 }
+// Mirrors league.html's seasonWindowFor() -- this repo has no shared-module
+// mechanism (every .html file is self-contained), so this small mapping is
+// intentionally duplicated rather than adding build/bundling infrastructure
+// just to share it. Only 2026/2027 have known real windows (tied to actual
+// Oscar ceremony dates, not a fixed formula); anything past that falls back
+// to the recent pattern (mid-March to early March the following year) as a
+// rough default -- it's a pre-fill the admin can still adjust, not a
+// authoritative eligibility cutoff the way it is in league.html.
+function seasonWindowFor(season) {
+  const known = { "2026": { start: "2026-03-16", end: "2027-03-14" }, "2027": { start: "2027-03-15", end: "2028-03-05" } };
+  if (known[String(season)]) return known[String(season)];
+  const y = parseInt(season) || new Date().getFullYear();
+  return { start: `${y}-03-15`, end: `${y + 1}-03-05` };
+}
+
+// Pre-fills the three optional date fields with sensible defaults derived
+// from the chosen season, instead of leaving blank pickers the admin has to
+// guess at. Draft Opens/Season End map directly to the season's own
+// eligibility window; Draft Closes has no established real-world
+// convention to derive from, so it's just a loose "two weeks after open"
+// guess -- all three are freely editable afterward.
+function fillCreateLeagueDateDefaults() {
+  const season = document.getElementById('cl-season').value;
+  const w = seasonWindowFor(season);
+  document.getElementById('cl-draftopen').value = w.start;
+  const closeDate = new Date(w.start + 'T00:00:00');
+  closeDate.setDate(closeDate.getDate() + 14);
+  document.getElementById('cl-draftclose').value = closeDate.toISOString().slice(0, 10);
+  document.getElementById('cl-seasonend').value = w.end;
+}
+
+function onCreateLeagueSeasonChange() {
+  // Only auto-refresh the date defaults if still in Custom mode -- once an
+  // admin has started editing them by hand this would otherwise clobber
+  // their changes every time they tweak the season number.
+  if (document.getElementById('cl-mode-custom-btn').classList.contains('active')) {
+    fillCreateLeagueDateDefaults();
+  }
+}
+
 function setCreateLeagueMode(mode) {
   document.getElementById('cl-mode-default-btn').classList.toggle('active', mode === 'default');
   document.getElementById('cl-mode-custom-btn').classList.toggle('active', mode === 'custom');
@@ -1055,6 +1111,8 @@ function setCreateLeagueMode(mode) {
     document.getElementById('cl-draftopen').value = '';
     document.getElementById('cl-draftclose').value = '';
     document.getElementById('cl-seasonend').value = '';
+  } else {
+    fillCreateLeagueDateDefaults();
   }
 }
 function handleOverlayClick(e, id) {

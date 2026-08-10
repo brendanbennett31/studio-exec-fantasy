@@ -253,7 +253,7 @@ async function loadLeagueContext() {
     // created_by, so their leagues lookup asks for a narrower column set —
     // this is app-level hygiene, not the security boundary (RLS is).
     const leagueSelect = PUBLIC_VIEW_MODE
-      ? "id,name,season,budget,draft_status,num_players,min_bid,max_bid,oscar_nom_bonus,oscar_win_bonus,bp_bonus,festival_picks,draft_open_date,draft_close_date,season_end_date,is_public,sacko_punishment"
+      ? "id,name,season,season_number,budget,draft_status,num_players,min_bid,max_bid,oscar_nom_bonus,oscar_win_bonus,bp_bonus,festival_picks,draft_open_date,draft_close_date,season_end_date,is_public,sacko_punishment"
       : "*";
     const leagues = await supabaseFetch("leagues", `id=eq.${LEAGUE_UUID}&select=${leagueSelect}`);
     if (leagues.length) LEAGUE_CONTEXT = leagues[0];
@@ -1379,6 +1379,16 @@ function App(){
   },[films]);
 
   const days=daysLeft();
+  // "Season One • 2026/27" used to be a hardcoded string with no real
+  // counter behind it. seasonNumberLabel now reflects leagues.season_number
+  // (migration 042, incremented by duplicate_league() on each continuation);
+  // seasonYearLabel derives the Oscar-eligibility-year range directly from
+  // leagues.season. Both fall back to the original hardcoded text for
+  // IS_LEGACY (no leagueCtx at all) or a league predating this column.
+  const seasonNumberLabel=leagueCtx?.season_number||1;
+  const seasonYearLabel=leagueCtx?.season
+    ?`${leagueCtx.season}/${String(Number(leagueCtx.season)+1).slice(-2)}`
+    :"2026/27";
   const totalFilms=films.length;
   const released=films.filter(f=>f.status==="released").length;
   const totalBO=data.ranked.reduce((s,e)=>s+e.totalBO,0);
@@ -1502,14 +1512,14 @@ function App(){
         <div style={{textAlign:"center",padding:"28px 0 16px"}}>
           {endgameActive?(
             <>
-              <div style={{fontSize:10,color:theme.gold,letterSpacing:"0.3em",fontWeight:500,marginBottom:6}}>STUDIO EXEC FANTASY &middot; 2026</div>
+              <div style={{fontSize:10,color:theme.gold,letterSpacing:"0.3em",fontWeight:500,marginBottom:6}}>STUDIO EXEC FANTASY &middot; {seasonYearLabel}</div>
               <h1 style={{fontFamily:"'Playfair Display',Georgia,serif",fontSize:"clamp(2rem,7vw,3.4rem)",fontWeight:700,letterSpacing:"0.02em",color:theme.gold,lineHeight:1.1,margin:0}}>Awards Season</h1>
               <div style={{fontSize:13,letterSpacing:"0.25em",color:theme.textMuted,marginTop:10,textTransform:"uppercase",fontWeight:500}}>The Final Act</div>
             </>
           ):(
             <>
               <h1 style={{fontSize:"clamp(1.8rem,7vw,3.2rem)",fontWeight:900,letterSpacing:"0.12em",color:theme.gold,lineHeight:1,textTransform:"uppercase"}}>Studio Exec Fantasy</h1>
-              <div style={{fontSize:14,letterSpacing:"0.25em",color:theme.textMuted,marginTop:8,textTransform:"uppercase",fontWeight:500}}>Season One &bull; 2026/27</div>
+              <div style={{fontSize:14,letterSpacing:"0.25em",color:theme.textMuted,marginTop:8,textTransform:"uppercase",fontWeight:500}}>Season {seasonNumberLabel} &bull; {seasonYearLabel}</div>
               <div style={{fontSize:12,color:theme.goldDeep,marginTop:8,fontFamily:"monospace"}}>{days} DAYS UNTIL OSCAR SUNDAY</div>
             </>
           )}
@@ -1558,7 +1568,7 @@ function App(){
         {tab==="timeline"&&<div key="timeline" style={{animation:"fadeSlideUp 0.4s ease-out both"}}><CalendarView films={films} studioNames={studioNames}/></div>}
         {tab==="trends"&&<TrendsTab films={films} data={data} studioNames={studioNames} weeklyBO={weeklyBO} weeklyPOI={weeklyPOI} dailyBO={dailyBO}/>}
         {tab==="purchase"&&<div key="purchase" style={{animation:"fadeSlideUp 0.4s ease-out both"}}><PurchasePriceTab films={films} data={data} studioNames={studioNames}/></div>}
-        {tab==="awards"&&<div key="awards" style={{animation:"fadeSlideUp 0.4s ease-out both"}}><AwardsTab films={films}/></div>}
+        {tab==="awards"&&<div key="awards" style={{animation:"fadeSlideUp 0.4s ease-out both"}}><AwardsTab films={films} leagueCtx={leagueCtx}/></div>}
         {tab==="acquisitions"&&!IS_LEGACY&&leagueCtx?.acquisitions_enabled&&<div key="acquisitions" style={{animation:"fadeSlideUp 0.4s ease-out both"}}><AcquisitionsTab leagueContext={leagueCtx} members={leagueMembers} userMembership={membership}/></div>}
         {tab==="rules"&&<div key="rules" style={{animation:"fadeSlideUp 0.4s ease-out both"}}><Rules leagueCtx={leagueCtx}/></div>}
         {tab==="manage"&&isAdmin&&!IS_LEGACY&&<div key="manage" style={{animation:"fadeSlideUp 0.4s ease-out both"}}><ManageTab leagueContext={leagueCtx} members={leagueMembers} userMembership={membership}/></div>}
@@ -3381,24 +3391,33 @@ function fmtAward(n){
   return "$"+Math.round(n).toLocaleString();
 }
 
-function AwardsTab({films}){
+function AwardsTab({films,leagueCtx}){
   const[odds,setOdds]=useState([]);
   const[loading,setLoading]=useState(true);
   const[oddsUpdated,setOddsUpdated]=useState(null);
   const[hoveredSlice,setHoveredSlice]=useState(null);
   const[animatedBars,setAnimatedBars]=useState(false);
 
+  // gold_derby_odds.season is the Oscar CEREMONY year, one past the league's
+  // own eligibility-window year (a league drafting for "season 2026" --
+  // films released March 2026 to March 2027 -- competes at the ceremony
+  // held right after that window closes, i.e. "2027"). Was hardcoded to
+  // 2027 before, which only happened to be correct for the original 2026
+  // league; falls back to that same 2027 for IS_LEGACY/missing leagueCtx so
+  // that view's behavior is unchanged.
+  const oddsSeason=leagueCtx?.season?String(Number(leagueCtx.season)+1):"2027";
+
   useEffect(()=>{
     async function loadOdds(){
       try{
-        const rows=await supabaseFetch("gold_derby_odds","season=eq.2027&order=nom_odds.desc");
+        const rows=await supabaseFetch("gold_derby_odds",`season=eq.${oddsSeason}&order=nom_odds.desc`);
         setOdds(rows||[]);
         if(rows.length) setOddsUpdated(rows[0].updated_at);
       }catch(e){console.warn("awards odds load failed:",e.message);}
       setLoading(false);
     }
     loadOdds();
-  },[]);
+  },[oddsSeason]);
 
   useEffect(()=>{
     if(odds.length>0){
@@ -3551,6 +3570,17 @@ function AwardsTab({films}){
   if(!odds.length) return(
     <div style={{background:"#111119",border:"1px solid #222233",borderRadius:10,padding:"40px 20px",textAlign:"center"}}>
       <div style={{fontSize:14,color:"#6a6a7e",marginBottom:8}}>No odds data yet.</div>
+    </div>
+  );
+
+  // A brand-new league with zero picks would otherwise show a full
+  // projections dashboard built entirely from "not on anyone's slate" --
+  // e.g. Dark Horse would surface whatever real contender has the best
+  // odds league-wide, which reads like leftover sample data even though
+  // it's real (just not this league's yet).
+  if(!films||films.length===0) return(
+    <div style={{background:"#111119",border:"1px solid #222233",borderRadius:10,padding:"40px 20px",textAlign:"center"}}>
+      <div style={{fontSize:14,color:"#6a6a7e",marginBottom:8}}>Draft some films first to see awards projections.</div>
     </div>
   );
 
@@ -4396,6 +4426,20 @@ function ManageTab({leagueContext, members, userMembership}){
       .trim();
   }
 
+  // Films released outside this league's own season window are still shown
+  // in search (a real film can matter for other reasons -- e.g. an admin
+  // fixing a mis-drafted pick), just visually flagged and requiring an
+  // explicit Override click instead of a plain click-to-select. Client-side
+  // only, not enforced server-side: this whole Add Picks flow is
+  // admin-only already (league_picks INSERT is RLS-gated to league admins,
+  // migration 012), so an admin bypassing this guardrail isn't a security
+  // concern the way it would be for a player-facing draft flow.
+  const seasonWindow=seasonWindowFor(leagueContext?.season);
+  function isOutOfSeason(releaseDate){
+    if(!seasonWindow||!releaseDate) return false;
+    return releaseDate<seasonWindow.start||releaseDate>seasonWindow.end;
+  }
+
   async function loadUniverseAndPicks(){
     setPicksLoading(true); setPicksLoadError(null);
     try{
@@ -4589,14 +4633,24 @@ function ManageTab({leagueContext, members, userMembership}){
                 <input style={inp} placeholder="Search Universe films…" value={pickSearch} onChange={e=>{setPickSearch(e.target.value);setSelectedFilm(null);}}/>
                 {pickSearch.trim()&&!selectedFilm&&(
                   <div style={{maxHeight:160,overflowY:'auto',marginTop:6,background:'#1a1a28',borderRadius:6,border:'1px solid #222233'}}>
-                    {getVisiblePickCandidates().map(f=>(
-                      <div key={f.id} onClick={()=>{setSelectedFilm(f);setPickSearch(f.title);}}
-                        style={{padding:'8px 12px',fontSize:13,color:'#e8e8f0',cursor:'pointer',borderBottom:'1px solid #222233'}}
-                        onMouseEnter={e=>e.currentTarget.style.background='#222233'}
-                        onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
-                        {f.title} <span style={{color:'#6a6a7e',fontSize:11}}>{f.release_date||'no date yet'}</span>
-                      </div>
-                    ))}
+                    {getVisiblePickCandidates().map(f=>{
+                      const oos=isOutOfSeason(f.release_date);
+                      return (
+                        <div key={f.id} style={{display:'flex',alignItems:'center',gap:8,padding:'8px 12px',fontSize:13,borderBottom:'1px solid #222233',opacity:oos?0.5:1}}
+                          onMouseEnter={e=>{if(!oos)e.currentTarget.style.background='#222233';}}
+                          onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                          <div onClick={()=>{if(!oos){setSelectedFilm(f);setPickSearch(f.title);}}}
+                            style={{flex:1,minWidth:0,color:'#e8e8f0',cursor:oos?'default':'pointer'}}>
+                            {f.title} <span style={{color:'#6a6a7e',fontSize:11}}>{f.release_date||'no date yet'}</span>
+                            {oos&&<span style={{marginLeft:6,fontSize:9,color:'#f59e0b',border:'1px solid rgba(245,158,11,0.35)',borderRadius:4,padding:'1px 5px',whiteSpace:'nowrap'}}>Out of season</span>}
+                          </div>
+                          {oos&&<button onClick={()=>{setSelectedFilm(f);setPickSearch(f.title);}}
+                            style={{fontSize:10,padding:'3px 8px',borderRadius:5,border:'1px solid rgba(245,158,11,0.4)',background:'rgba(245,158,11,0.1)',color:'#f59e0b',cursor:'pointer',flexShrink:0}}>
+                            Override
+                          </button>}
+                        </div>
+                      );
+                    })}
                     {getVisiblePickCandidates().length===0&&<div style={{padding:'8px 12px',fontSize:12,color:'#6a6a7e'}}>No matches (or already drafted in this league).</div>}
                   </div>
                 )}
@@ -4647,12 +4701,23 @@ function ManageTab({leagueContext, members, userMembership}){
                         placeholder="Search Universe films…" style={{width:'100%',padding:'6px 10px',borderRadius:5,border:'1px solid #2a2a3a',background:'#0e0e16',color:'#e8e8f0',fontSize:12,marginBottom:6,boxSizing:'border-box'}}/>
                       {resolveSearch.trim()&&!resolveSelectedFilm&&(
                         <div style={{maxHeight:120,overflowY:'auto',background:'#0e0e16',border:'1px solid #2a2a3a',borderRadius:5,marginBottom:6}}>
-                          {getVisibleResolveCandidates().map(f=>(
-                            <div key={f.id} onClick={()=>setResolveSelectedFilm(f)} style={{padding:'6px 10px',fontSize:12,cursor:'pointer',color:'#e8e8f0',borderBottom:'1px solid #1a1a28'}}
-                              onMouseEnter={e=>e.currentTarget.style.background='#1a1a28'} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
-                              {f.title}
-                            </div>
-                          ))}
+                          {getVisibleResolveCandidates().map(f=>{
+                            const oos=isOutOfSeason(f.release_date);
+                            return (
+                              <div key={f.id} style={{display:'flex',alignItems:'center',gap:6,padding:'6px 10px',fontSize:12,borderBottom:'1px solid #1a1a28',opacity:oos?0.5:1}}
+                                onMouseEnter={e=>{if(!oos)e.currentTarget.style.background='#1a1a28';}}
+                                onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                                <div onClick={()=>{if(!oos)setResolveSelectedFilm(f);}} style={{flex:1,minWidth:0,color:'#e8e8f0',cursor:oos?'default':'pointer'}}>
+                                  {f.title}
+                                  {oos&&<span style={{marginLeft:6,fontSize:9,color:'#f59e0b',border:'1px solid rgba(245,158,11,0.35)',borderRadius:4,padding:'1px 5px',whiteSpace:'nowrap'}}>Out of season</span>}
+                                </div>
+                                {oos&&<button onClick={()=>setResolveSelectedFilm(f)}
+                                  style={{fontSize:9,padding:'2px 6px',borderRadius:4,border:'1px solid rgba(245,158,11,0.4)',background:'rgba(245,158,11,0.1)',color:'#f59e0b',cursor:'pointer',flexShrink:0}}>
+                                  Override
+                                </button>}
+                              </div>
+                            );
+                          })}
                           {getVisibleResolveCandidates().length===0&&<div style={{padding:'8px 10px',fontSize:11,color:'#6a6a7e'}}>No matches (or already drafted in this league).</div>}
                         </div>
                       )}
