@@ -1137,10 +1137,28 @@ function App(){
   const[leagueMembers,setLeagueMembers]=useState([]);
   const[showSettings,setShowSettings]=useState(false);
   const[showProfileMenu,setShowProfileMenu]=useState(false);
+  const[draftSession,setDraftSession]=useState(null);
   const isAdmin = membership?.role === 'admin';
   // The current user's team name in this league (e.g. "BB", "BRANDON")
   // Used to highlight and scroll to their card in standings
   const myTeam = membership?.team_name || null;
+
+  // Draft Room session state, fetched separately from the main slate load
+  // since it only exists once an admin opts a brand-new league into
+  // draft_mode='live' (migration 044). Passed down to ManageTab (setup
+  // screen) and DraftRoomTab (live room), both of which also call this
+  // directly after an RPC changes it, since Realtime only pushes changes to
+  // components that are actually subscribed (DraftRoomTab), not this level.
+  async function refreshDraftSession(){
+    if(IS_LEGACY) return;
+    try{
+      const rows=await supabaseFetch("draft_sessions", `league_id=eq.${LEAGUE_UUID}&select=*`);
+      setDraftSession((rows&&rows[0])||null);
+    }catch(e){ /* draft_sessions migration not run yet, or no session -- fine either way */ }
+  }
+  useEffect(()=>{
+    if(leagueCtx?.id) refreshDraftSession();
+  },[leagueCtx?.id, leagueCtx?.draft_mode]);
 
   useEffect(()=>{
     async function loadData(){
@@ -1432,9 +1450,18 @@ function App(){
 
   // Awards moves to position 2 in endgame; Calendar drops to position 3
   const acqTab = (!IS_LEGACY&&leagueCtx?.acquisitions_enabled) ? [{id:"acquisitions",label:"Acquisitions"}] : [];
+  // Only shown once the draft is actually underway (or finished) -- while
+  // it's still in 'setup', the turn-order/timer config lives in ManageTab
+  // instead, since there's nothing live to watch yet.
+  const draftTab = (!IS_LEGACY&&leagueCtx?.draft_mode==="live"&&draftSession&&draftSession.status!=="setup") ? [{id:"draft",label:"Draft Room"}] : [];
+  // A brand-new league with zero picks and no draft_mode chosen yet shows a
+  // full-screen "how do you want to build this slate?" choice instead of
+  // the normal tabs. Naturally stops applying the moment either a pick
+  // lands (films.length>0, from either path) or draft_mode gets set.
+  const needsDraftModeChoice = !IS_LEGACY && !PUBLIC_VIEW_MODE && !!leagueCtx && films.length===0 && leagueCtx.draft_mode===null && liveStatus!=="loading";
   const tabList=endgameActive
-    ?[{id:"standings",label:"Standings"},{id:"awards",label:"Awards"},{id:"timeline",label:"Calendar"},{id:"purchase",label:"By Price"},{id:"trends",label:"Trends"},...acqTab,{id:"rules",label:"Rules"},...(isAdmin&&!IS_LEGACY?[{id:"manage",label:"Manage",admin:true}]:[])]
-    :[{id:"standings",label:"Standings"},{id:"timeline",label:"Calendar"},{id:"purchase",label:"By Price"},{id:"trends",label:"Trends"},{id:"awards",label:"Awards"},...acqTab,{id:"rules",label:"Rules"},...(isAdmin&&!IS_LEGACY?[{id:"manage",label:"Manage",admin:true}]:[])];
+    ?[{id:"standings",label:"Standings"},{id:"awards",label:"Awards"},{id:"timeline",label:"Calendar"},{id:"purchase",label:"By Price"},{id:"trends",label:"Trends"},...acqTab,...draftTab,{id:"rules",label:"Rules"},...(isAdmin&&!IS_LEGACY?[{id:"manage",label:"Manage",admin:true}]:[])]
+    :[{id:"standings",label:"Standings"},{id:"timeline",label:"Calendar"},{id:"purchase",label:"By Price"},{id:"trends",label:"Trends"},{id:"awards",label:"Awards"},...acqTab,...draftTab,{id:"rules",label:"Rules"},...(isAdmin&&!IS_LEGACY?[{id:"manage",label:"Manage",admin:true}]:[])];
 
   // Theme palette swaps based on endgame
   const theme=endgameActive?{
@@ -1562,6 +1589,8 @@ function App(){
             <div style={{width:26,height:26,border:`2.5px solid ${theme.border}`,borderTopColor:theme.gold,borderRadius:"50%",animation:"spin 0.7s linear infinite"}}/>
             <div style={{fontSize:11,color:theme.textMuted,letterSpacing:"0.15em",textTransform:"uppercase",fontFamily:"monospace"}}>Loading league…</div>
           </div>
+        ):needsDraftModeChoice?(
+          <DraftModeChoice isAdmin={isAdmin} onChosen={(mode)=>setLeagueCtx(prev=>({...prev,draft_mode:mode}))}/>
         ):(
         <div style={{animation:"fadeSlideUp 0.35s ease-out both"}}>
         {/* Endgame countdown banner - replaces "days left" tile concept */}
@@ -1590,8 +1619,9 @@ function App(){
         {tab==="purchase"&&<div key="purchase" style={{animation:"fadeSlideUp 0.4s ease-out both"}}><PurchasePriceTab films={films} data={data} studioNames={studioNames}/></div>}
         {tab==="awards"&&<div key="awards" style={{animation:"fadeSlideUp 0.4s ease-out both"}}><AwardsTab films={films} leagueCtx={leagueCtx}/></div>}
         {tab==="acquisitions"&&!IS_LEGACY&&leagueCtx?.acquisitions_enabled&&<div key="acquisitions" style={{animation:"fadeSlideUp 0.4s ease-out both"}}><AcquisitionsTab leagueContext={leagueCtx} members={leagueMembers} userMembership={membership}/></div>}
+        {tab==="draft"&&!IS_LEGACY&&draftTab.length>0&&<div key="draft" style={{animation:"fadeSlideUp 0.4s ease-out both"}}><DraftRoomTab leagueContext={leagueCtx} members={leagueMembers} userMembership={membership} films={films} draftSession={draftSession} setDraftSession={setDraftSession}/></div>}
         {tab==="rules"&&<div key="rules" style={{animation:"fadeSlideUp 0.4s ease-out both"}}><Rules leagueCtx={leagueCtx}/></div>}
-        {tab==="manage"&&isAdmin&&!IS_LEGACY&&<div key="manage" style={{animation:"fadeSlideUp 0.4s ease-out both"}}><ManageTab leagueContext={leagueCtx} members={leagueMembers} userMembership={membership}/></div>}
+        {tab==="manage"&&isAdmin&&!IS_LEGACY&&<div key="manage" style={{animation:"fadeSlideUp 0.4s ease-out both"}}><ManageTab leagueContext={leagueCtx} members={leagueMembers} userMembership={membership} draftSession={draftSession} refreshDraftSession={refreshDraftSession} onGoToDraftRoom={()=>setTab("draft")}/></div>}
         </div>
         )}
         <div style={{textAlign:"center",padding:"24px 0 8px",fontSize:10,color:"#3a3a4e",letterSpacing:"0.12em",textTransform:"uppercase",fontFamily:"monospace"}}>{days} days until Oscar Sunday &bull; March 14, 2027</div>
@@ -4255,8 +4285,480 @@ function AcquisitionsTab({leagueContext,members,userMembership}){
   );
 }
 
+// ─── LIVE DRAFT ROOM ───────────────────────────────────────────────────────
+// Full-screen choice shown on a brand-new league (zero picks, draft_mode
+// still null) instead of the normal tabs -- see needsDraftModeChoice in
+// App(). A one-time fork between the live auction below and the existing
+// manual Add Picks flow in ManageTab.
+function DraftModeChoice({isAdmin, onChosen}){
+  const[saving,setSaving]=useState(null); // holds which mode is saving, or null
+  const[msg,setMsg]=useState(null);
+
+  async function choose(mode){
+    setSaving(mode); setMsg(null);
+    const session=getSession();
+    const res=await fetch(`${SUPABASE_URL}/rest/v1/rpc/choose_draft_mode`,{
+      method:"POST",
+      headers:{"apikey":SUPABASE_ANON_KEY,"Authorization":`Bearer ${session?.access_token||SUPABASE_ANON_KEY}`,"Content-Type":"application/json"},
+      body:JSON.stringify({p_league_id:LEAGUE_UUID,p_mode:mode})
+    });
+    const data=await res.json().catch(()=>({}));
+    setSaving(null);
+    if(res.ok) onChosen(mode);
+    else setMsg(data.message||"Failed to set draft mode.");
+  }
+
+  return(
+    <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"60px 20px",textAlign:"center",gap:16}}>
+      <div style={{fontSize:19,fontWeight:800,color:"#e8e8f0"}}>How do you want to build this league's slate?</div>
+      <div style={{fontSize:13,color:"#8a8a9e",maxWidth:420}}>A one-time choice, made once by an admin, for a brand-new league with nothing drafted yet.</div>
+      {msg&&<div style={{fontSize:12,color:"#ef4444"}}>{msg}</div>}
+      {isAdmin?(
+        <div style={{display:"flex",gap:14,flexWrap:"wrap",justifyContent:"center",marginTop:8}}>
+          <button onClick={()=>choose("live")} disabled={!!saving} style={{padding:"18px 22px",borderRadius:12,border:"1px solid rgba(212,168,67,0.35)",background:"rgba(212,168,67,0.08)",color:"#d4a843",fontSize:14,fontWeight:700,cursor:"pointer",width:220,opacity:saving?0.7:1,textAlign:"left"}}>
+            Live Draft
+            <div style={{fontSize:11,fontWeight:400,color:"#8a8a9e",marginTop:6,lineHeight:1.4}}>Players take turns nominating films, everyone bids live, a countdown decides the winner.</div>
+          </button>
+          <button onClick={()=>choose("manual")} disabled={!!saving} style={{padding:"18px 22px",borderRadius:12,border:"1px solid #222233",background:"#111119",color:"#e8e8f0",fontSize:14,fontWeight:700,cursor:"pointer",width:220,opacity:saving?0.7:1,textAlign:"left"}}>
+            Manual Entry
+            <div style={{fontSize:11,fontWeight:400,color:"#8a8a9e",marginTop:6,lineHeight:1.4}}>An admin adds each pick by hand from the Manage tab, like this app has always worked.</div>
+          </button>
+        </div>
+      ):(
+        <div style={{fontSize:13,color:"#6a6a7e",marginTop:8}}>Waiting for a league admin to choose how the draft will work…</div>
+      )}
+    </div>
+  );
+}
+
+// Setup card shown inside ManageTab once draft_mode==='live': turn order
+// (reorder via up/down -- no drag-and-drop lib in this project) and the
+// timer/soft-close/nomination-timeout config, then Start Draft. configure_draft
+// is safely re-callable any number of times while status is still 'setup'
+// (it's an upsert keyed on league_id), so Save Setup can be hit repeatedly.
+function DraftSetupCard({leagueContext, members, draftSession, refreshDraftSession, onGoToDraftRoom}){
+  const l=leagueContext||{};
+  const[turnOrder,setTurnOrder]=useState(draftSession?.turn_order?.length?draftSession.turn_order:(members||[]).map(m=>m.user_id));
+  const[timerSeconds,setTimerSeconds]=useState(draftSession?.timer_seconds||60);
+  const[softCloseSeconds,setSoftCloseSeconds]=useState(draftSession?.soft_close_seconds||10);
+  const[nominationTimeoutSeconds,setNominationTimeoutSeconds]=useState(draftSession?.nomination_timeout_seconds||30);
+  const[saving,setSaving]=useState(false);
+  const[starting,setStarting]=useState(false);
+  const[msg,setMsg]=useState(null);
+
+  useEffect(()=>{
+    if(draftSession){
+      setTurnOrder(draftSession.turn_order?.length?draftSession.turn_order:(members||[]).map(m=>m.user_id));
+      setTimerSeconds(draftSession.timer_seconds||60);
+      setSoftCloseSeconds(draftSession.soft_close_seconds||10);
+      setNominationTimeoutSeconds(draftSession.nomination_timeout_seconds||30);
+    }
+  },[draftSession?.id]);
+
+  function nameFor(userId){
+    const m=(members||[]).find(x=>x.user_id===userId);
+    return m?.profile?.display_name||m?.team_name||userId;
+  }
+
+  function move(idx,dir){
+    setTurnOrder(order=>{
+      const j=idx+dir;
+      if(j<0||j>=order.length) return order;
+      const next=[...order];
+      [next[idx],next[j]]=[next[j],next[idx]];
+      return next;
+    });
+  }
+
+  function randomize(){
+    setTurnOrder(order=>{
+      const next=[...order];
+      for(let i=next.length-1;i>0;i--){
+        const j=Math.floor(Math.random()*(i+1));
+        [next[i],next[j]]=[next[j],next[i]];
+      }
+      return next;
+    });
+  }
+
+  async function callRpc(fn,args){
+    const session=getSession();
+    const res=await fetch(`${SUPABASE_URL}/rest/v1/rpc/${fn}`,{
+      method:"POST",
+      headers:{"apikey":SUPABASE_ANON_KEY,"Authorization":`Bearer ${session?.access_token||SUPABASE_ANON_KEY}`,"Content-Type":"application/json"},
+      body:JSON.stringify(args)
+    });
+    const data=await res.json().catch(()=>({}));
+    return {ok:res.ok,data};
+  }
+
+  async function saveSetup(){
+    setSaving(true); setMsg(null);
+    const {ok,data}=await callRpc("configure_draft",{
+      p_league_id:LEAGUE_UUID,
+      p_turn_order:turnOrder,
+      p_timer_seconds:Number(timerSeconds)||60,
+      p_soft_close_seconds:Number(softCloseSeconds)||10,
+      p_nomination_timeout_seconds:Number(nominationTimeoutSeconds)||30,
+    });
+    setSaving(false);
+    if(ok){ setMsg({text:"Setup saved.",error:false}); refreshDraftSession(); }
+    else setMsg({text:data.message||"Failed to save setup.",error:true});
+  }
+
+  async function startDraft(){
+    if(!window.confirm("Start the live draft now? Turn order and timers lock in once it begins.")) return;
+    setStarting(true); setMsg(null);
+    const {ok,data}=await callRpc("start_draft",{p_league_id:LEAGUE_UUID});
+    setStarting(false);
+    if(ok) refreshDraftSession();
+    else setMsg({text:data.message||"Failed to start.",error:true});
+  }
+
+  if(l.draft_mode!=="live") return null;
+
+  const inp={width:"100%",padding:"8px 10px",background:"#1a1a28",border:"1px solid #222233",borderRadius:6,color:"#e8e8f0",fontSize:13,boxSizing:"border-box"};
+  const isSetup = !draftSession||draftSession.status==="setup";
+
+  return(
+    <div style={{background:"#111119",border:"1px solid #222233",borderRadius:10,padding:"16px 14px"}}>
+      <div style={{fontSize:12,fontWeight:700,color:"#d4a843",letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:14}}>Live Draft Setup</div>
+      {msg&&<div style={{padding:"8px 12px",borderRadius:6,fontSize:12,marginBottom:12,background:msg.error?"rgba(239,68,68,0.08)":"rgba(52,211,153,0.08)",border:`1px solid ${msg.error?"rgba(239,68,68,0.2)":"rgba(52,211,153,0.2)"}`,color:msg.error?"#ef4444":"#34d399"}}>{msg.text}</div>}
+
+      {isSetup?(
+        <>
+          <div style={{fontSize:11,fontWeight:700,color:"#6a6a7e",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:8}}>Turn Order</div>
+          {turnOrder.map((uid,i)=>(
+            <div key={uid} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 10px",background:"#1a1a28",borderRadius:6,marginBottom:4}}>
+              <div style={{width:18,textAlign:"center",fontSize:11,color:"#6a6a7e",fontFamily:"monospace"}}>{i+1}</div>
+              <div style={{flex:1,fontSize:13,color:"#e8e8f0"}}>{nameFor(uid)}</div>
+              <button onClick={()=>move(i,-1)} disabled={i===0} style={{background:"none",border:"none",color:i===0?"#3a3a4e":"#6a6a7e",cursor:i===0?"default":"pointer",fontSize:13,padding:"2px 6px"}}>↑</button>
+              <button onClick={()=>move(i,1)} disabled={i===turnOrder.length-1} style={{background:"none",border:"none",color:i===turnOrder.length-1?"#3a3a4e":"#6a6a7e",cursor:i===turnOrder.length-1?"default":"pointer",fontSize:13,padding:"2px 6px"}}>↓</button>
+            </div>
+          ))}
+          <button onClick={randomize} style={{marginTop:6,marginBottom:16,padding:"6px 14px",borderRadius:7,border:"1px solid #222233",background:"transparent",color:"#6a6a7e",fontSize:11,fontWeight:700,cursor:"pointer"}}>Randomize</button>
+
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:14}}>
+            <div>
+              <div style={{fontSize:10,color:"#6a6a7e",marginBottom:4}}>Bid timer (sec)</div>
+              <input type="number" value={timerSeconds} onChange={e=>setTimerSeconds(e.target.value)} style={inp}/>
+            </div>
+            <div>
+              <div style={{fontSize:10,color:"#6a6a7e",marginBottom:4}}>Soft-close (sec)</div>
+              <input type="number" value={softCloseSeconds} onChange={e=>setSoftCloseSeconds(e.target.value)} style={inp}/>
+            </div>
+            <div>
+              <div style={{fontSize:10,color:"#6a6a7e",marginBottom:4}}>Nom. timeout (sec)</div>
+              <input type="number" value={nominationTimeoutSeconds} onChange={e=>setNominationTimeoutSeconds(e.target.value)} style={inp}/>
+            </div>
+          </div>
+
+          <div style={{display:"flex",gap:8}}>
+            <button onClick={saveSetup} disabled={saving} style={{padding:"8px 18px",borderRadius:7,border:"1px solid rgba(212,168,67,0.3)",background:"rgba(212,168,67,0.08)",color:"#d4a843",fontSize:12,fontWeight:700,cursor:"pointer",opacity:saving?0.7:1}}>
+              {saving?"Saving…":"Save Setup"}
+            </button>
+            <button onClick={startDraft} disabled={starting||!draftSession} title={!draftSession?"Save the setup first":undefined} style={{padding:"8px 18px",borderRadius:7,border:"none",background:"#d4a843",color:"#0d0d14",fontSize:12,fontWeight:700,cursor:"pointer",opacity:(starting||!draftSession)?0.5:1}}>
+              {starting?"Starting…":"Start Draft"}
+            </button>
+          </div>
+        </>
+      ):(
+        <div style={{fontSize:13,color:"#8a8a9e"}}>
+          {draftSession.status==="active"?<>Draft is live. <a onClick={onGoToDraftRoom} style={{color:"#d4a843",cursor:"pointer",textDecoration:"underline"}}>Go to the Draft Room tab →</a></>:"Draft completed."}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// The live room itself: whose-turn banner, nominated-film card with live
+// high bid + countdown, bid input, budget strip, resolved-items history.
+// Resyncs everything on any Realtime event on the three draft tables rather
+// than hand-patching state from the payload -- a resolution touches
+// draft_items/draft_sessions/league_picks at once, so a full resync is both
+// simpler and self-healing if a message is ever missed.
+function DraftRoomTab({leagueContext, members, userMembership, films, draftSession, setDraftSession}){
+  const isAdmin = userMembership?.role==="admin";
+  const myUserId = userMembership?.user_id;
+
+  const[activeItem,setActiveItem]=useState(null);
+  const[bids,setBids]=useState([]);
+  const[history,setHistory]=useState([]);
+  const[budgets,setBudgets]=useState([]);
+  const[loading,setLoading]=useState(true);
+  const[msg,setMsg]=useState(null);
+  const[now,setNow]=useState(Date.now());
+
+  const[universeFilms,setUniverseFilms]=useState([]);
+  const[nomSearch,setNomSearch]=useState("");
+  const[nomSelected,setNomSelected]=useState(null);
+  const[nominating,setNominating]=useState(false);
+  const[bidAmount,setBidAmount]=useState("");
+  const[bidding,setBidding]=useState(false);
+
+  const resolveInFlightRef=useRef(false);
+
+  async function callRpc(fn,args){
+    const session=getSession();
+    const res=await fetch(`${SUPABASE_URL}/rest/v1/rpc/${fn}`,{
+      method:"POST",
+      headers:{"apikey":SUPABASE_ANON_KEY,"Authorization":`Bearer ${session?.access_token||SUPABASE_ANON_KEY}`,"Content-Type":"application/json"},
+      body:JSON.stringify(args)
+    });
+    const data=await res.json().catch(()=>({}));
+    return {ok:res.ok,data};
+  }
+
+  async function loadAll(){
+    try{
+      const [sessions, items, budgetRes] = await Promise.all([
+        supabaseFetch("draft_sessions", `league_id=eq.${LEAGUE_UUID}&select=*`),
+        supabaseFetch("draft_items", `league_id=eq.${LEAGUE_UUID}&select=*,universe_films(title,release_date)&order=started_at.desc&limit=30`),
+        callRpc("league_draft_budgets",{p_league_id:LEAGUE_UUID}),
+      ]);
+      if(sessions&&sessions[0]) setDraftSession(sessions[0]);
+      const active=(items||[]).find(i=>i.status==="active")||null;
+      setActiveItem(active);
+      setHistory((items||[]).filter(i=>i.status!=="active"));
+      setBudgets(budgetRes.ok?(budgetRes.data||[]):[]);
+      if(active){
+        const bidRows=await supabaseFetch("draft_bids", `draft_item_id=eq.${active.id}&order=submitted_at.desc&limit=20`);
+        setBids(bidRows||[]);
+      } else {
+        setBids([]);
+      }
+      if(universeFilms.length===0){
+        const uf=await supabaseFetch("universe_films","select=id,title,imdb_id,release_date,festival_protected_until&order=release_date.asc.nullslast");
+        setUniverseFilms(uf||[]);
+      }
+    }catch(e){ console.error("[draft room] load failed:", e.message); }
+    setLoading(false);
+  }
+
+  useEffect(()=>{ loadAll(); },[]);
+
+  useEffect(()=>{
+    const channel=supabaseClient
+      .channel(`draft-room-${LEAGUE_UUID}`)
+      .on("postgres_changes",{event:"*",schema:"public",table:"draft_sessions",filter:`league_id=eq.${LEAGUE_UUID}`},()=>loadAll())
+      .on("postgres_changes",{event:"*",schema:"public",table:"draft_items",filter:`league_id=eq.${LEAGUE_UUID}`},()=>loadAll())
+      .on("postgres_changes",{event:"*",schema:"public",table:"draft_bids",filter:`league_id=eq.${LEAGUE_UUID}`},()=>loadAll())
+      .subscribe((status)=>{ if(status==="SUBSCRIBED") loadAll(); });
+    return ()=>{ supabaseClient.removeChannel(channel); };
+  },[]);
+
+  // Purely a display tick -- always recomputed from whatever ends_at is
+  // currently in state, never a locally-decrementing counter, so a
+  // soft-close extension arriving via Realtime is picked up automatically.
+  useEffect(()=>{
+    const t=setInterval(()=>setNow(Date.now()),1000);
+    return ()=>clearInterval(t);
+  },[]);
+
+  // Whichever connected client's countdown reaches zero first calls the
+  // resolve/pass RPC -- both are idempotent server-side (draft_sessions row
+  // lock + status re-check), so multiple tabs racing on this is harmless.
+  // resolveInFlightRef only guards against this same tab firing twice on
+  // consecutive 1s ticks before loadAll() has cleared the expired item.
+  useEffect(()=>{
+    if(!draftSession||draftSession.status!=="active"||resolveInFlightRef.current) return;
+    if(activeItem && new Date(activeItem.ends_at).getTime()<=now){
+      resolveInFlightRef.current=true;
+      callRpc("resolve_draft_item",{p_league_id:LEAGUE_UUID,p_draft_item_id:activeItem.id}).finally(()=>{resolveInFlightRef.current=false; loadAll();});
+    } else if(!activeItem && draftSession.nomination_ends_at && new Date(draftSession.nomination_ends_at).getTime()<=now){
+      resolveInFlightRef.current=true;
+      callRpc("pass_turn",{p_league_id:LEAGUE_UUID}).finally(()=>{resolveInFlightRef.current=false; loadAll();});
+    }
+  },[now]);
+
+  function normTitle(t){
+    return (t||"").toLowerCase().replace(/^(the |a |an )/,"").replace(/[^a-z0-9]+/g," ").trim();
+  }
+
+  function getVisibleNomCandidates(){
+    const already=new Set((films||[]).map(f=>f.imdb_id).filter(Boolean));
+    const window=seasonWindowFor(leagueContext?.season);
+    const nowD=new Date();
+    let list=universeFilms.filter(f=>{
+      if(!f.imdb_id||already.has(f.imdb_id)) return false;
+      if(!f.release_date) return false;
+      if(new Date(f.release_date)<=nowD) return false;
+      if(f.festival_protected_until&&new Date(f.festival_protected_until)>nowD) return false;
+      if(window&&(f.release_date<window.start||f.release_date>window.end)) return false;
+      return true;
+    });
+    if(nomSearch.trim()){
+      const n=normTitle(nomSearch);
+      list=list.filter(f=>normTitle(f.title).includes(n));
+    }
+    return list.slice(0,50);
+  }
+
+  function nameFor(userId){
+    const m=(members||[]).find(x=>x.user_id===userId);
+    return m?.profile?.display_name||m?.team_name||"—";
+  }
+
+  function fmtSecs(ms){
+    if(ms==null) return "—";
+    return `${Math.ceil(ms/1000)}s`;
+  }
+
+  async function doNominate(){
+    if(!nomSelected) return;
+    setNominating(true); setMsg(null);
+    const {ok,data}=await callRpc("nominate_film",{p_league_id:LEAGUE_UUID,p_imdb_id:nomSelected.imdb_id});
+    setNominating(false);
+    if(ok){ setNomSelected(null); setNomSearch(""); loadAll(); }
+    else setMsg({text:data.message||"Nomination failed",error:true});
+  }
+
+  async function doBid(){
+    setMsg(null);
+    const amt=Number(bidAmount);
+    if(!bidAmount||isNaN(amt)||amt<=0){ setMsg({text:"Enter a valid bid.",error:true}); return; }
+    setBidding(true);
+    const {ok,data}=await callRpc("place_draft_bid",{p_league_id:LEAGUE_UUID,p_draft_item_id:activeItem.id,p_amount:amt});
+    setBidding(false);
+    if(ok){ setBidAmount(""); loadAll(); }
+    else setMsg({text:data.message||"Bid rejected",error:true});
+  }
+
+  async function doPass(){
+    setMsg(null);
+    const {ok,data}=await callRpc("pass_turn",{p_league_id:LEAGUE_UUID});
+    if(ok) loadAll(); else setMsg({text:data.message||"Failed to pass",error:true});
+  }
+
+  async function doCancelItem(){
+    if(!activeItem) return;
+    setMsg(null);
+    const {ok,data}=await callRpc("admin_cancel_draft_item",{p_league_id:LEAGUE_UUID,p_draft_item_id:activeItem.id});
+    if(ok) loadAll(); else setMsg({text:data.message||"Failed to cancel",error:true});
+  }
+
+  async function doEndDraft(){
+    if(!window.confirm("End the live draft? This locks the league's draft the same as the manual Lock Draft button.")) return;
+    setMsg(null);
+    const {ok,data}=await callRpc("admin_end_draft",{p_league_id:LEAGUE_UUID});
+    if(ok) loadAll(); else setMsg({text:data.message||"Failed to end draft",error:true});
+  }
+
+  if(loading) return <div style={{padding:20,textAlign:"center",color:"#6a6a7e"}}>Loading Draft Room…</div>;
+  if(!draftSession) return <div style={{padding:20,textAlign:"center",color:"#6a6a7e"}}>Draft hasn't been configured yet — an admin can set it up from the Manage tab.</div>;
+
+  const turnOrder=draftSession.turn_order||[];
+  const currentUserId=turnOrder[draftSession.current_turn_idx];
+  const isMyTurn=currentUserId===myUserId;
+  const msLeft = activeItem ? Math.max(0,new Date(activeItem.ends_at).getTime()-now) : (draftSession.nomination_ends_at ? Math.max(0,new Date(draftSession.nomination_ends_at).getTime()-now) : null);
+
+  return(
+    <div>
+      {draftSession.status==="completed"&&<div style={{padding:16,borderRadius:8,background:"rgba(52,211,153,0.06)",border:"1px solid rgba(52,211,153,0.2)",color:"#34d399",fontSize:13,marginBottom:16}}>Draft completed.</div>}
+      {msg&&<div style={{padding:"10px 14px",borderRadius:7,fontSize:13,marginBottom:16,background:msg.error?"rgba(239,68,68,0.08)":"rgba(52,211,153,0.08)",border:`1px solid ${msg.error?"rgba(239,68,68,0.2)":"rgba(52,211,153,0.2)"}`,color:msg.error?"#ef4444":"#34d399"}}>{msg.text}</div>}
+
+      {draftSession.status==="active"&&(
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 16px",borderRadius:8,background:"#111119",border:"1px solid #222233",marginBottom:16,flexWrap:"wrap",gap:10}}>
+          <div style={{fontSize:13,color:"#e8e8f0"}}>
+            {activeItem?<>Bidding is open on <b>{activeItem.universe_films?.title||activeItem.imdb_id}</b></>:<>Up next to nominate: <b style={{color:isMyTurn?"#d4a843":"#e8e8f0"}}>{nameFor(currentUserId)}</b>{isMyTurn?" (you!)":""}</>}
+          </div>
+          <div style={{fontFamily:"monospace",fontSize:16,fontWeight:700,color:msLeft!=null&&msLeft<6000?"#ef4444":"#d4a843"}}>{fmtSecs(msLeft)}</div>
+        </div>
+      )}
+
+      {draftSession.status==="active"&&!activeItem&&isMyTurn&&(
+        <div style={{padding:16,borderRadius:10,background:"#111119",border:"1px solid #222233",marginBottom:16}}>
+          <div style={{fontSize:11,fontWeight:700,color:"#6a6a7e",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:12}}>Your turn — nominate a film</div>
+          <input value={nomSearch} onChange={e=>{setNomSearch(e.target.value);setNomSelected(null);}} placeholder="Search the Universe of Films…"
+            style={{width:"100%",padding:"9px 12px",borderRadius:7,border:"1px solid #2a2a3a",background:"#0e0e16",color:"#e8e8f0",fontSize:13,marginBottom:8,boxSizing:"border-box"}}/>
+          {nomSearch.trim()&&!nomSelected&&(
+            <div style={{maxHeight:160,overflowY:"auto",background:"#0e0e16",border:"1px solid #2a2a3a",borderRadius:7,marginBottom:8}}>
+              {getVisibleNomCandidates().map(f=>(
+                <div key={f.id} onClick={()=>{setNomSelected(f);setNomSearch(f.title);}} style={{padding:"8px 12px",fontSize:13,cursor:"pointer",color:"#e8e8f0",borderBottom:"1px solid #1a1a28"}}
+                  onMouseEnter={e=>e.currentTarget.style.background="#1a1a28"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                  {f.title}{f.release_date?<span style={{color:"#6a6a7e",marginLeft:6,fontSize:11}}>{f.release_date}</span>:null}
+                </div>
+              ))}
+              {getVisibleNomCandidates().length===0&&<div style={{padding:"10px 12px",fontSize:12,color:"#6a6a7e"}}>No films match.</div>}
+            </div>
+          )}
+          {nomSelected&&<div style={{fontSize:11,color:"#34d399",marginBottom:8}}>Selected: {nomSelected.title}</div>}
+          <div style={{display:"flex",gap:8}}>
+            <button onClick={doNominate} disabled={nominating||!nomSelected} style={{padding:"8px 18px",borderRadius:7,border:"none",background:"#d4a843",color:"#0d0d14",fontSize:12,fontWeight:700,cursor:"pointer",opacity:(nominating||!nomSelected)?0.6:1}}>
+              {nominating?"Nominating…":"Nominate"}
+            </button>
+            <button onClick={doPass} style={{padding:"8px 18px",borderRadius:7,border:"1px solid #222233",background:"transparent",color:"#6a6a7e",fontSize:12,fontWeight:700,cursor:"pointer"}}>Pass</button>
+          </div>
+        </div>
+      )}
+
+      {draftSession.status==="active"&&activeItem&&(
+        <div style={{padding:16,borderRadius:10,background:"#111119",border:"1px solid #222233",marginBottom:16}}>
+          <div style={{fontSize:15,fontWeight:700,color:"#e8e8f0",marginBottom:4}}>{activeItem.universe_films?.title||activeItem.imdb_id}</div>
+          <div style={{fontSize:11,color:"#6a6a7e",marginBottom:12}}>Nominated by {nameFor(activeItem.nominated_by)}{activeItem.universe_films?.release_date?` · releases ${activeItem.universe_films.release_date}`:""}</div>
+          <div style={{fontSize:13,color:"#8a8a9e",marginBottom:10}}>
+            Current high bid: <span style={{color:"#d4a843",fontWeight:700,fontFamily:"monospace"}}>{activeItem.current_high_bid!=null?`$${activeItem.current_high_bid}M`:"No bids yet"}</span>
+            {activeItem.current_high_bidder?<> — {nameFor(activeItem.current_high_bidder)}</>:null}
+          </div>
+          <div style={{display:"flex",gap:8,marginBottom:12}}>
+            <input type="number" value={bidAmount} onChange={e=>setBidAmount(e.target.value)} placeholder={`Bid ($M, min $${activeItem.current_high_bid!=null?Number(activeItem.current_high_bid)+1:(leagueContext?.min_bid||1)}M)`}
+              style={{flex:1,padding:"9px 12px",borderRadius:7,border:"1px solid #2a2a3a",background:"#0e0e16",color:"#e8e8f0",fontSize:13,boxSizing:"border-box"}}/>
+            <button onClick={doBid} disabled={bidding} style={{padding:"9px 20px",borderRadius:7,border:"none",background:"#d4a843",color:"#0d0d14",fontSize:12,fontWeight:700,cursor:"pointer",opacity:bidding?0.6:1}}>
+              {bidding?"Bidding…":"Bid"}
+            </button>
+          </div>
+          {isAdmin&&<button onClick={doCancelItem} style={{padding:"6px 14px",borderRadius:7,border:"1px solid rgba(239,68,68,0.3)",background:"rgba(239,68,68,0.06)",color:"#ef4444",fontSize:11,fontWeight:700,cursor:"pointer"}}>Cancel nomination (admin)</button>}
+          <div style={{marginTop:14,paddingTop:12,borderTop:"1px solid #222233"}}>
+            <div style={{fontSize:10,fontWeight:700,color:"#6a6a7e",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:8}}>Bids</div>
+            {bids.length===0&&<div style={{fontSize:12,color:"#6a6a7e"}}>No bids yet.</div>}
+            {bids.map(b=>(
+              <div key={b.id} style={{display:"flex",justifyContent:"space-between",fontSize:12,padding:"4px 0",color:"#8a8a9e"}}>
+                <span>{nameFor(b.user_id)}</span>
+                <span style={{fontFamily:"monospace",color:"#d4a843"}}>${b.amount}M</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {draftSession.status==="active"&&!activeItem&&!isMyTurn&&(
+        <div style={{padding:16,borderRadius:10,background:"#0e0e16",border:"1px solid #222233",marginBottom:16,textAlign:"center",color:"#6a6a7e",fontSize:13}}>
+          Waiting for {nameFor(currentUserId)} to nominate a film…
+          {isAdmin&&<div style={{marginTop:10}}><button onClick={doPass} style={{padding:"6px 14px",borderRadius:7,border:"1px solid #222233",background:"transparent",color:"#6a6a7e",fontSize:11,fontWeight:700,cursor:"pointer"}}>Skip their turn (admin)</button></div>}
+        </div>
+      )}
+
+      {budgets.length>0&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:16}}>
+        {budgets.map(b=>(
+          <div key={b.user_id} style={{padding:"8px 10px",borderRadius:7,background:"#111119",border:"1px solid #1a1a28",fontSize:12}}>
+            <div style={{color:"#e8e8f0",fontWeight:600}}>{b.team_name}</div>
+            <div style={{color:"#6a6a7e",fontFamily:"monospace"}}>${b.remaining}M left of ${b.budget}M</div>
+          </div>
+        ))}
+      </div>}
+
+      <div>
+        <div style={{fontSize:11,fontWeight:700,color:"#6a6a7e",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>History</div>
+        {history.length===0&&<div style={{fontSize:12,color:"#6a6a7e"}}>Nothing resolved yet.</div>}
+        {history.map(h=>(
+          <div key={h.id} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 10px",background:"#111119",border:"1px solid #1a1a28",borderRadius:6,marginBottom:4}}>
+            <div style={{flex:1,fontSize:12,color:"#e8e8f0"}}>{h.universe_films?.title||h.imdb_id}</div>
+            <div style={{fontSize:11,color:h.status==="sold"?"#34d399":h.status==="unsold"?"#f59e0b":"#6a6a7e",fontFamily:"monospace"}}>{h.status==="sold"?`${nameFor(h.current_high_bidder)} — $${h.current_high_bid}M`:h.status}</div>
+          </div>
+        ))}
+      </div>
+
+      {isAdmin&&draftSession.status==="active"&&!activeItem&&(
+        <div style={{marginTop:16,textAlign:"right"}}>
+          <button onClick={doEndDraft} style={{padding:"8px 16px",borderRadius:7,border:"1px solid rgba(239,68,68,0.3)",background:"rgba(239,68,68,0.06)",color:"#ef4444",fontSize:12,fontWeight:700,cursor:"pointer"}}>End Draft (admin)</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── MANAGE TAB (Admin only) ──────────────────────────────────────────────────
-function ManageTab({leagueContext, members, userMembership}){
+function ManageTab({leagueContext, members, userMembership, draftSession, refreshDraftSession, onGoToDraftRoom}){
   const l = leagueContext || {};
   const[draftStatus,setDraftStatus]=React.useState(l.draft_status||'open');
   const[editingRules,setEditingRules]=React.useState(false);
@@ -4589,6 +5091,8 @@ function ManageTab({leagueContext, members, userMembership}){
           </button>
         </div>
       </div>
+
+      <DraftSetupCard leagueContext={leagueContext} members={members} draftSession={draftSession} refreshDraftSession={refreshDraftSession} onGoToDraftRoom={onGoToDraftRoom}/>
 
       {/* Acquisitions */}
       <div style={{background:'#111119',border:'1px solid #222233',borderRadius:10,padding:'16px 14px'}}>
