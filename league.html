@@ -1587,6 +1587,20 @@ function NotificationBell(){
   const[loaded,setLoaded]=useState(false);
   const session=getSession();
   const uid=session?.user?.id;
+  const wrapRef=useRef(null);
+
+  // Close on any click outside this component. The bell button and the
+  // whole dropdown (including the delete/Clear all buttons) all live
+  // inside wrapRef, so clicking any of those is an "inside" click and
+  // won't close it -- only clicking elsewhere on the page does.
+  useEffect(()=>{
+    if(!open) return;
+    function onDocMouseDown(e){
+      if(wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false);
+    }
+    document.addEventListener("mousedown", onDocMouseDown);
+    return()=>document.removeEventListener("mousedown", onDocMouseDown);
+  },[open]);
 
   async function load(){
     if(!uid) return;
@@ -1651,7 +1665,7 @@ function NotificationBell(){
   if(!uid) return null;
 
   return(
-    <div style={{position:"relative"}}>
+    <div ref={wrapRef} style={{position:"relative"}}>
       <button onClick={()=>{const willOpen=!open;setOpen(willOpen);if(willOpen&&unread.length)markRead(unread.map(n=>n.id));}}
         style={{width:32,height:32,borderRadius:"50%",background:open?"#22223344":"transparent",border:"1.5px solid #2a2a3a",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",position:"relative",flexShrink:0,transition:"all 0.15s"}}
         onMouseEnter={e=>{if(!open)e.currentTarget.style.background="#22223344";}}
