@@ -61,6 +61,7 @@ header{position:sticky;top:0;z-index:50;height:60px;padding:0 32px;display:flex;
 .league-card{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:24px;display:flex;flex-direction:column;gap:16px;transition:border-color 0.2s,transform 0.15s;position:relative;overflow:hidden}
 .league-card:hover{border-color:#3a3a50;transform:translateY(-2px)}
 .league-card::before{content:'';position:absolute;top:0;left:0;right:0;height:3px}
+.league-notif-badge{position:absolute;top:10px;right:10px;width:9px;height:9px;border-radius:50%;background:#ef4444;border:1.5px solid var(--bg2);box-shadow:0 0 0 2px rgba(239,68,68,0.2)}
 .league-card.role-admin::before{background:linear-gradient(90deg,var(--gold),transparent)}
 .league-card.role-player::before{background:linear-gradient(90deg,var(--green),transparent)}
 .league-card.role-guest::before{background:linear-gradient(90deg,var(--muted),transparent)}
@@ -390,6 +391,12 @@ const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 let currentSession = null;
 let currentProfile = null;
 let userLeagues = [];
+// league_id -> true for every league with at least one unread notification
+// for the current user. Populated by loadNotificationBadges(), read by
+// renderLeagueCard() to show a small dot in the card's top-right corner --
+// same underlying `notifications` table league.html's bell reads, just
+// grouped by league instead of shown as a flat list.
+let UNREAD_LEAGUE_IDS = new Set();
 
 // ── AUTH ──────────────────────────────────────────────────────────────────────
 // Every open tab polls independently against the one session stored in
@@ -556,7 +563,15 @@ async function init() {
 
   // Load league memberships
   await loadLeagues();
+  await loadNotificationBadges();
   renderDashboard();
+
+  // Keep the per-league unread badges fresh while the dashboard tab stays
+  // open, same 60s cadence as the bell icon in league.html.
+  setInterval(async () => {
+    await loadNotificationBadges();
+    renderDashboard();
+  }, 60000);
 }
 
 async function loadLeagues() {
@@ -566,6 +581,16 @@ async function loadLeagues() {
   );
   if (ok && Array.isArray(data)) {
     userLeagues = data.filter(m => m.league);
+  }
+}
+
+async function loadNotificationBadges() {
+  const userId = currentSession.user?.id;
+  const { ok, data } = await sbFetch(
+    `/rest/v1/notifications?user_id=eq.${userId}&read=eq.false&select=league_id`
+  );
+  if (ok && Array.isArray(data)) {
+    UNREAD_LEAGUE_IDS = new Set(data.map(n => n.league_id).filter(Boolean));
   }
 }
 
@@ -645,8 +670,11 @@ function renderLeagueCard(membership) {
     </div>
   ` : '';
 
+  const hasUnread = UNREAD_LEAGUE_IDS.has(league.id);
+
   return `
     <div class="league-card role-${role}">
+      ${hasUnread ? `<div class="league-notif-badge" title="Unread notifications in this league"></div>` : ''}
       <div class="league-card-top">
         <div>
           <div class="league-name">${escHtml(league.name)}</div>
