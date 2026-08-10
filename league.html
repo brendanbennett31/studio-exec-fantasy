@@ -4701,18 +4701,11 @@ function ManageTab({leagueContext, members, userMembership}){
 
 function SettingsPanel({membership, leagueCtx, onClose}){
   const session = getSession();
-  const[tab,setTab]=useState("profile");
-  const[displayName,setDisplayName]=useState(session?.user?.user_metadata?.display_name||"");
+  const[tab,setTab]=useState("league");
   const[studioName,setStudioName]=useState(membership?.team_name||"");
   const[teamColor,setTeamColor]=useState(membership?.color||"");
-  const[email,setEmail]=useState(session?.user?.email||"");
-  const[currentPw,setCurrentPw]=useState("");
-  const[newPw,setNewPw]=useState("");
-  const[confirmPw,setConfirmPw]=useState("");
   const[saving,setSaving]=useState(false);
   const[msg,setMsg]=useState(null); // {text, error}
-  const[showDeleteConfirm,setShowDeleteConfirm]=useState(false);
-  const[deleteInput,setDeleteInput]=useState("");
   const[notifPrefs,setNotifPrefs]=useState(null);
   const[notifLoading,setNotifLoading]=useState(false);
 
@@ -4736,47 +4729,6 @@ function SettingsPanel({membership, leagueCtx, onClose}){
       body:JSON.stringify({user_id:session.user.id,...next})
     });
     if(!res.ok) setMsg({text:"Failed to save notification preference",error:true});
-  }
-
-  async function sbAuth(endpoint, body) {
-    const res = await fetch(`${SUPABASE_URL}/auth/v1/${endpoint}`, {
-      method:"PUT",
-      headers:{"apikey":SUPABASE_ANON_KEY,"Authorization":`Bearer ${session?.access_token}`,"Content-Type":"application/json"},
-      body:JSON.stringify(body)
-    });
-    return {ok:res.ok, data:await res.json()};
-  }
-
-  async function saveProfile(){
-    setSaving(true); setMsg(null);
-    const updates = {};
-    if(displayName.trim()) updates.data = {display_name:displayName.trim()};
-    if(email.trim()!==session?.user?.email) updates.email = email.trim();
-    const {ok,data} = await sbAuth("user", updates);
-    if(ok){
-      // Update local session
-      const s = JSON.parse(localStorage.getItem('sef_session')||'{}');
-      s.user = {...s.user,...data};
-      localStorage.setItem('sef_session', JSON.stringify(s));
-      setMsg({text:"Profile updated",error:false});
-    } else {
-      setMsg({text:data.msg||"Update failed",error:true});
-    }
-    setSaving(false);
-  }
-
-  async function savePassword(){
-    setSaving(true); setMsg(null);
-    if(!newPw||newPw.length<8){setMsg({text:"Password must be at least 8 characters",error:true});setSaving(false);return;}
-    if(newPw!==confirmPw){setMsg({text:"Passwords do not match",error:true});setSaving(false);return;}
-    const {ok,data} = await sbAuth("user", {password:newPw});
-    if(ok){
-      setMsg({text:"Password updated",error:false});
-      setCurrentPw(""); setNewPw(""); setConfirmPw("");
-    } else {
-      setMsg({text:data.msg||"Failed to update password",error:true});
-    }
-    setSaving(false);
   }
 
   async function saveStudioName(){
@@ -4808,24 +4760,24 @@ function SettingsPanel({membership, leagueCtx, onClose}){
   async function saveTeamColor(c){
     setSaving(true); setMsg(null);
     if(!session||!membership){ setSaving(false); return; }
-    setTeamColor(c);
-    // Color only touches league_members, which a member can already PATCH
-    // for their own row (migration 005's members_update policy) -- no RPC
-    // needed here, unlike the team-name rename above.
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/league_members?league_id=eq.${leagueCtx?.id}&user_id=eq.${session.user.id}`, {
-      method:"PATCH",
-      headers:{"apikey":SUPABASE_ANON_KEY,"Authorization":`Bearer ${session.access_token}`,"Content-Type":"application/json","Prefer":"return=minimal"},
-      body:JSON.stringify({color:c})
+    // Goes through set_my_team_color() (migration 032) rather than a plain
+    // PATCH -- same reason as the studio-name rename above: a bare PATCH
+    // can't enforce "no two members of this league share a color" without
+    // a race-prone client-side check, so that rule lives server-side in the
+    // RPC instead.
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/set_my_team_color`, {
+      method:"POST",
+      headers:{"apikey":SUPABASE_ANON_KEY,"Authorization":`Bearer ${session.access_token}`,"Content-Type":"application/json"},
+      body:JSON.stringify({p_league_id:leagueCtx?.id, p_color:c})
     });
-    if(res.ok){setMsg({text:"Color updated — reload to see changes",error:false});}
-    else{setMsg({text:"Failed to update color",error:true});}
+    if(res.ok){
+      setTeamColor(c);
+      setMsg({text:"Color updated — reload to see changes",error:false});
+    } else {
+      const data = await res.json().catch(()=>({}));
+      setMsg({text:data.message||"Failed to update color",error:true});
+    }
     setSaving(false);
-  }
-
-  async function deleteAccount(){
-    // Sign out and remove session — full deletion requires admin API
-    localStorage.removeItem('sef_session');
-    window.location.href='/';
   }
 
   const inputStyle={width:"100%",padding:"10px 13px",background:"#1a1a28",border:"1px solid #222233",borderRadius:7,color:"#e8e8f0",fontSize:13,fontFamily:"'Helvetica Neue',sans-serif",outline:"none",boxSizing:"border-box"};
@@ -4845,7 +4797,7 @@ function SettingsPanel({membership, leagueCtx, onClose}){
         </div>
         {/* Tabs */}
         <div style={{display:"flex",borderBottom:"1px solid #222233",flexShrink:0}}>
-          {["profile","password","league","notifications"].map(t=>(
+          {["league","notifications"].map(t=>(
             <button key={t} onClick={()=>{setTab(t);setMsg(null);}} style={{flex:1,padding:"10px 6px",background:"none",border:"none",borderBottom:`2px solid ${tab===t?"#d4a843":"transparent"}`,color:tab===t?"#d4a843":"#6a6a7e",fontSize:11,fontWeight:600,cursor:"pointer",textTransform:"uppercase",letterSpacing:"0.06em",fontFamily:"inherit",transition:"all 0.15s"}}>
               {t==="league"?"League":t.charAt(0).toUpperCase()+t.slice(1)}
             </button>
@@ -4855,44 +4807,9 @@ function SettingsPanel({membership, leagueCtx, onClose}){
         <div style={{flex:1,overflowY:"auto",padding:"20px"}}>
           {msg&&<div style={{padding:"10px 14px",borderRadius:7,fontSize:13,marginBottom:16,background:msg.error?"rgba(239,68,68,0.08)":"rgba(52,211,153,0.08)",border:`1px solid ${msg.error?"rgba(239,68,68,0.2)":"rgba(52,211,153,0.2)"}`,color:msg.error?"#ef4444":"#34d399"}}>{msg.text}</div>}
 
-          {tab==="profile"&&(
-            <div>
-              <div style={sectionStyle}>
-                <label style={labelStyle}>Display Name</label>
-                <input style={inputStyle} value={displayName} onChange={e=>setDisplayName(e.target.value)} placeholder="Your name"/>
-              </div>
-              <div style={sectionStyle}>
-                <label style={labelStyle}>Email Address</label>
-                <input style={inputStyle} type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="your@email.com"/>
-                {email!==session?.user?.email&&<div style={{fontSize:10,color:"#f59e0b",marginTop:4}}>You'll receive a confirmation email to verify the change.</div>}
-              </div>
-              <button onClick={saveProfile} disabled={saving} style={{...btnStyle,background:"#d4a843",color:"#0d0d14",width:"100%",opacity:saving?0.7:1}}>
-                {saving?"Saving...":"Save Profile"}
-              </button>
-
-            </div>
-          )}
-
-          {tab==="password"&&(
-            <div>
-              <div style={{fontSize:12,color:"#6a6a7e",marginBottom:20,lineHeight:1.6}}>Choose a strong password. You'll stay logged in on this device after changing it.</div>
-              <div style={sectionStyle}>
-                <label style={labelStyle}>New Password</label>
-                <input style={inputStyle} type="password" value={newPw} onChange={e=>setNewPw(e.target.value)} placeholder="At least 8 characters" autocomplete="new-password"/>
-              </div>
-              <div style={sectionStyle}>
-                <label style={labelStyle}>Confirm New Password</label>
-                <input style={inputStyle} type="password" value={confirmPw} onChange={e=>setConfirmPw(e.target.value)} placeholder="Same password again" autocomplete="new-password"/>
-              </div>
-              <button onClick={savePassword} disabled={saving} style={{...btnStyle,background:"#d4a843",color:"#0d0d14",width:"100%",opacity:saving?0.7:1}}>
-                {saving?"Updating...":"Update Password"}
-              </button>
-            </div>
-          )}
-
           {tab==="league"&&(
             <div>
-              <div style={{fontSize:12,color:"#6a6a7e",marginBottom:20,lineHeight:1.6}}>Your studio name is how you appear in <strong style={{color:"#e8e8f0"}}>{leagueCtx?.name||"this league"}</strong>. Each league can have a different studio name.</div>
+              <div style={{fontSize:12,color:"#6a6a7e",marginBottom:20,lineHeight:1.6}}>Your studio name is how you appear in <strong style={{color:"#e8e8f0"}}>{leagueCtx?.name||"this league"}</strong>. Each league can have a different studio name. Your player name, email, and password are account-wide — manage those from your dashboard settings instead.</div>
               <div style={sectionStyle}>
                 <label style={labelStyle}>Studio Name</label>
                 <input style={inputStyle} value={studioName} onChange={e=>setStudioName(e.target.value)} placeholder="e.g. Sunset Pictures"/>
@@ -4904,14 +4821,22 @@ function SettingsPanel({membership, leagueCtx, onClose}){
               <div style={{...sectionStyle,paddingTop:20,borderTop:"1px solid #222233"}}>
                 <label style={labelStyle}>Your Color</label>
                 <div style={{display:"flex",flexWrap:"wrap",gap:10,marginTop:6}}>
-                  {TEAM_COLOR_PALETTE.map(c=>(
-                    <button key={c} onClick={()=>saveTeamColor(c)} disabled={saving} title={c}
-                      style={{width:30,height:30,borderRadius:"50%",background:c,cursor:"pointer",
-                        border:teamColor===c?"2px solid #e8e8f0":"2px solid transparent",
-                        boxShadow:teamColor===c?`0 0 0 2px ${c}`:"none",opacity:saving?0.6:1}}/>
-                  ))}
+                  {TEAM_COLOR_PALETTE.map(c=>{
+                    const takenBy=LEAGUE_MEMBERS.find(m=>m.color===c&&m.user_id!==session?.user?.id);
+                    const isMine=teamColor===c;
+                    return (
+                      <button key={c} onClick={()=>!takenBy&&saveTeamColor(c)} disabled={saving||!!takenBy}
+                        title={takenBy?`Taken by ${takenBy.team_name}`:c}
+                        style={{width:30,height:30,borderRadius:"50%",background:c,cursor:takenBy?"not-allowed":"pointer",
+                          border:isMine?"2px solid #e8e8f0":"2px solid transparent",
+                          boxShadow:isMine?`0 0 0 2px ${c}`:"none",opacity:takenBy?0.25:(saving?0.6:1),
+                          position:"relative"}}>
+                        {takenBy&&<span style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,color:"#fff",textShadow:"0 1px 2px rgba(0,0,0,0.7)"}}>✕</span>}
+                      </button>
+                    );
+                  })}
                 </div>
-                <div style={{fontSize:10,color:"#6a6a7e",marginTop:8}}>How your card and slate are colored in standings. Saves as soon as you pick one.</div>
+                <div style={{fontSize:10,color:"#6a6a7e",marginTop:8}}>How your card and slate are colored in standings. Saves as soon as you pick one. Grayed-out colors are already taken by another team in this league.</div>
               </div>
               <div style={{paddingTop:20,borderTop:"1px solid #222233",marginBottom:20}}>
                 <label style={labelStyle}>Default Tab</label>
@@ -4921,21 +4846,6 @@ function SettingsPanel({membership, leagueCtx, onClose}){
                   ))}
                 </select>
                 <div style={{fontSize:10,color:"#6a6a7e",marginTop:5}}>Which tab you land on when opening a league.</div>
-              </div>
-              <div style={{paddingTop:20,borderTop:"1px solid #222233"}}>
-                <div style={{fontSize:11,fontWeight:700,color:"#ef4444",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:8}}>Danger Zone</div>
-                <div style={{fontSize:12,color:"#6a6a7e",marginBottom:12,lineHeight:1.5}}>Deleting your account will sign you out permanently. To fully remove your data, contact us via Help & About.</div>
-                {!showDeleteConfirm?(
-                  <button onClick={()=>setShowDeleteConfirm(true)} style={{...btnStyle,background:"rgba(239,68,68,0.08)",color:"#ef4444",border:"1px solid rgba(239,68,68,0.2)",width:"100%"}}>Delete Account</button>
-                ):(
-                  <div style={{padding:14,background:"rgba(239,68,68,0.06)",border:"1px solid rgba(239,68,68,0.2)",borderRadius:8}}>
-                    <div style={{fontSize:12,color:"#ef4444",marginBottom:10,lineHeight:1.5}}>Are you sure? This action signs you out. Contact us to fully remove your account.</div>
-                    <div style={{display:"flex",gap:8}}>
-                      <button onClick={()=>setShowDeleteConfirm(false)} style={{...btnStyle,flex:1,background:"transparent",border:"1px solid #222233",color:"#6a6a7e"}}>Cancel</button>
-                      <button onClick={deleteAccount} style={{...btnStyle,flex:1,background:"#ef4444",color:"#fff"}}>Confirm</button>
-                    </div>
-                  </div>
-                )}
               </div>
             </div>
           )}
