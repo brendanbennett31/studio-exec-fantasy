@@ -372,6 +372,12 @@ async function init() {
 
   currentProfile = data[0];
   isAdmin = !!currentProfile.is_admin;
+  // Previously this only gated the edit/add/delete controls -- any logged-in
+  // user could still reach this whole page by URL and browse it. Now a
+  // real page-level gate: profiles.is_admin is a global dev/site-admin
+  // flag (migration 009), not the per-league "role='admin'" role, set only
+  // via direct SQL (no self-serve UI, deliberately -- see migration 010).
+  if (!isAdmin) { window.location.href = '/dashboard.html'; return; }
 
   const name = currentProfile.display_name || currentSession.user?.email || '?';
   const initials = name.includes('@') ? name[0].toUpperCase() : name.split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase() || '?';
