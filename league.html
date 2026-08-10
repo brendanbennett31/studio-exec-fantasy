@@ -2157,9 +2157,17 @@ function useRankFlipAnimation(ranked,liveStatus,rankField,keys){
 
   // Old order: undo each exec's known rank delta to get where it sat
   // before the change, so cards can start there and slide into today's spot.
+  // rankChanges[name] = oldRank - newRank (positive = rose), so
+  // oldRank = newRank + rankChanges[name] -- this used to subtract instead
+  // of add, which for a simple two-team swap produces the exact same order
+  // as the final ranking (the sign flip cancels itself out for a swap),
+  // so there was nothing left to visibly animate even though phase still
+  // transitioned and the arrow badges (driven by rankChanges directly, not
+  // this) showed correctly. That's why the swap-two-teams test showed
+  // arrows but no slide.
   const oldOrder=useMemo(()=>[...ranked].sort((a,b)=>{
-    const oa=a[rankField]-(rankChanges[a.name]||0);
-    const ob=b[rankField]-(rankChanges[b.name]||0);
+    const oa=a[rankField]+(rankChanges[a.name]||0);
+    const ob=b[rankField]+(rankChanges[b.name]||0);
     return oa-ob;
   }),[ranked,rankChanges,rankField]);
 
