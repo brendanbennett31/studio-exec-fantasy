@@ -321,6 +321,14 @@ function daysUntil(date){
 const DEFAULT_STUDIOS = { BRANDON: "Continental Studios", RAFA: "Dwayne the Rock's Wig", KAI: "Ginza Films", PATRICK: "Brock Heimer", BB: "No Wot Studios" };
 // Mutable for the same reason as EXEC_COLORS above — rebuilt per real league.
 let DISPLAY = { BRANDON: "Brandon", RAFA: "Rafa", KAI: "Kai", PATRICK: "Patrick", BB: "BB" };
+// The account-level player name (profiles.display_name), as opposed to
+// DISPLAY -- which for a real (non-legacy) league actually holds the
+// per-league STUDIO name (see the rebuild in the main data effect below;
+// the "DISPLAY" name predates the multi-league architecture, back when a
+// team's key/label genuinely was the player's own name). Rebuilt per
+// league from LEAGUE_MEMBERS' joined profile; legacy mode keeps these
+// same hardcoded first names since that path is never rebuilt.
+let PLAYER_NAMES = { BRANDON: "Brandon", RAFA: "Rafa", KAI: "Kai", PATRICK: "Patrick", BB: "BB" };
 const BUDGET = 500;
 // BB has $18M remaining (originally $8M + extra from GxK situation)
 // Patrick has $9M remaining. Brandon has $0 remaining.
@@ -1213,17 +1221,25 @@ function App(){
             // migration 016) -- prefer that over the auto-assigned palette
             // rotation when one's been set.
             const memberColorByTeam = {};
-            LEAGUE_MEMBERS.forEach(m=>{ if(m.team_name && m.color) memberColorByTeam[m.team_name]=m.color; });
-            const newColors = {}, newDisplay = {};
+            const memberPlayerNameByTeam = {};
+            LEAGUE_MEMBERS.forEach(m=>{
+              if(m.team_name && m.color) memberColorByTeam[m.team_name]=m.color;
+              if(m.team_name && m.profile?.display_name) memberPlayerNameByTeam[m.team_name]=m.profile.display_name;
+            });
+            const newColors = {}, newDisplay = {}, newPlayerNames = {};
             let colorIdx = 0;
             films.forEach(f=>{
               if(!f.team || newColors[f.team]) return;
               newColors[f.team] = memberColorByTeam[f.team] || TEAM_COLOR_PALETTE[colorIdx % TEAM_COLOR_PALETTE.length];
               newDisplay[f.team] = f.team;
+              // Falls back to the studio name itself when no member row/profile
+              // matches (e.g. a stale team_name left over from before a rename).
+              newPlayerNames[f.team] = memberPlayerNameByTeam[f.team] || f.team;
               colorIdx++;
             });
             EXEC_COLORS = newColors;
             DISPLAY = newDisplay;
+            PLAYER_NAMES = newPlayerNames;
 
             // Real per-team Acquisitions budget breakdown, replacing the
             // legacy hardcoded REMAINDERS for any league that's opted in
@@ -2386,9 +2402,9 @@ function StandingsBO({data,studioNames,expandedExecs,toggleExec,previewChanges,l
                 <div style={{minWidth:0}}>
                   <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"nowrap",minWidth:0}}>
                     <div style={{width:10,height:10,borderRadius:"50%",background:EXEC_COLORS[exec.name],flexShrink:0}}/>
-                    <span style={{fontWeight:800,fontSize:16,flexShrink:0}}>{DISPLAY[exec.name]}</span>
+                    <span style={{fontWeight:800,fontSize:16,flexShrink:0}}>{PLAYER_NAMES[exec.name]}</span>
                     {myTeam&&exec.name===myTeam&&<span style={{fontSize:9,fontWeight:700,letterSpacing:"0.1em",padding:"2px 6px",borderRadius:4,background:"rgba(245,200,66,0.12)",color:"#d4a843",border:"1px solid rgba(245,200,66,0.3)"}}>YOU</span>}
-                    <span style={{fontSize:11,color:"#6a6a7e",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",minWidth:0}}>{studioNames[exec.name]}</span>
+                    <span style={{fontSize:11,color:"#6a6a7e",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",minWidth:0}}>{IS_LEGACY?studioNames[exec.name]:DISPLAY[exec.name]}</span>
                     <span style={{fontSize:10,color:"#4a4a5e",fontFamily:"monospace",flexShrink:0,whiteSpace:"nowrap"}}>· {exec.filmCount}</span>
                   </div>
                   <div style={{display:"flex",gap:12,marginTop:5,fontSize:11,color:"#6a6a7e",fontFamily:"monospace",flexWrap:"wrap"}}>
@@ -2421,7 +2437,7 @@ function StandingsBO({data,studioNames,expandedExecs,toggleExec,previewChanges,l
         <div style={{fontSize:12,fontWeight:700,color:"#6a6a7e",letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:16}}>Grand Total Breakdown</div>
         {ranked.map(exec=>{const boPct=maxGT>0?(exec.totalBO/maxGT)*100:0;const budPct=maxGT>0?((exec.remaining*1e6)/maxGT)*100:0;return(
           <div key={exec.name} style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
-            <div style={{width:55,fontSize:12,fontWeight:700,color:EXEC_COLORS[exec.name],textAlign:"right"}}>{DISPLAY[exec.name]}</div>
+            <div style={{width:55,fontSize:12,fontWeight:700,color:EXEC_COLORS[exec.name],textAlign:"right"}}>{PLAYER_NAMES[exec.name]}</div>
             <div style={{flex:1,position:"relative",height:26,background:"#1a1a28",borderRadius:4,overflow:"hidden"}}>
               <div style={{position:"absolute",left:0,top:0,bottom:0,width:boPct+"%",background:EXEC_COLORS[exec.name],opacity:0.7,borderRadius:"4px 0 0 4px"}}/>
               <div style={{position:"absolute",left:boPct+"%",top:0,bottom:0,width:budPct+"%",background:EXEC_COLORS[exec.name],opacity:0.25}}/>
@@ -2443,7 +2459,7 @@ function StandingsPOI({data,studioNames,expandedExecs,toggleExec,myTeam}){
         return(<div key={exec.name}>
           <div onClick={()=>toggleExec(exec.name)} style={{display:"grid",gridTemplateColumns:"36px 1fr auto auto",gap:12,alignItems:"center",padding:"14px 16px",background:"#111119",border:`1px solid ${exec.poiRank===1?"rgba(212,168,67,0.35)":"#222233"}`,borderRadius:isOpen?"10px 10px 0 0":10,marginBottom:isOpen?0:6,borderLeft:`3px solid ${exec.poiRank<=3?["#d4a843","#9ca3af","#cd7f32"][exec.poiRank-1]:"#222233"}`,cursor:"pointer",userSelect:"none"}}>
             <div style={{fontSize:28,fontWeight:900,color:exec.poiRank===1?"#d4a843":"#4a4a5e",textAlign:"center",lineHeight:1}}>{exec.poiRank}</div>
-            <div style={{minWidth:0}}><div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"nowrap",minWidth:0}}><div style={{width:10,height:10,borderRadius:"50%",background:EXEC_COLORS[exec.name],flexShrink:0}}/><span style={{fontWeight:800,fontSize:16,flexShrink:0}}>{DISPLAY[exec.name]}</span><span style={{fontSize:11,color:"#6a6a7e",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",minWidth:0}}>{studioNames[exec.name]}</span><span style={{fontSize:10,color:"#4a4a5e",fontFamily:"monospace",flexShrink:0,whiteSpace:"nowrap"}}>· {exec.filmCount}</span></div>
+            <div style={{minWidth:0}}><div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"nowrap",minWidth:0}}><div style={{width:10,height:10,borderRadius:"50%",background:EXEC_COLORS[exec.name],flexShrink:0}}/><span style={{fontWeight:800,fontSize:16,flexShrink:0}}>{PLAYER_NAMES[exec.name]}</span><span style={{fontSize:11,color:"#6a6a7e",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",minWidth:0}}>{IS_LEGACY?studioNames[exec.name]:DISPLAY[exec.name]}</span><span style={{fontSize:10,color:"#4a4a5e",fontFamily:"monospace",flexShrink:0,whiteSpace:"nowrap"}}>· {exec.filmCount}</span></div>
               <div style={{display:"flex",gap:12,marginTop:5,fontSize:11,color:"#6a6a7e",fontFamily:"monospace",flexWrap:"wrap"}}>
                 {(()=>{
                   const spent=exec.films.filter(f=>f.status==="released"||f.bo>0||f.voided).reduce((s,f)=>s+f.bid,0);
