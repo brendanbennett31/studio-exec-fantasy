@@ -103,12 +103,31 @@ body.endgame::after{
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script type="text/babel">
 const { useState, useMemo, useEffect, useLayoutEffect, useRef, useCallback } = React;
 
 // ── Supabase config ───────────────────────────────────────────────────────────
 const SUPABASE_URL = "https://fymkwkbatklfynnhxrsf.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ5bWt3a2JhdGtsZnlubmh4cnNmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA3OTIzOTksImV4cCI6MjA5NjM2ODM5OX0.XjO1xIS2WLF8JNIwIAKqjCL65ISkSu2u7VaeG8gzaew";
+
+// supabase-js is used ONLY for Realtime (Postgres Changes, first use of this
+// SDK in the app -- every other request is still a hand-rolled fetch()
+// against PostgREST). persistSession/autoRefreshToken are off because this
+// app already hand-rolls its own session into localStorage['sef_session']
+// (see getSession()/refreshSession() below) -- letting the SDK's own auth
+// client run in parallel would just be a second, driftable copy of the same
+// state. Realtime's RLS filtering runs off whatever JWT the socket
+// authenticated with, so syncRealtimeAuth() below must be called both once
+// at boot and every time refreshSession() rotates the access token, or an
+// open tab silently goes deaf (or drops to anon-scoped) once the token it
+// connected with expires (~1hr).
+const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  auth: { persistSession: false, autoRefreshToken: false }
+});
+function syncRealtimeAuth(session) {
+  if (session && session.access_token) supabaseClient.realtime.setAuth(session.access_token);
+}
 
 // ── Auth + League context ─────────────────────────────────────────────────────
 function getSession() {
@@ -162,6 +181,7 @@ async function refreshSession(s) {
         user: data.user || s.user
       };
       localStorage.setItem('sef_session', JSON.stringify(newSession));
+      syncRealtimeAuth(newSession);
       return newSession;
     } catch(e) { return null; }
   };
@@ -5050,6 +5070,7 @@ function SettingsPanel({membership, leagueCtx, onClose}){
   if (!IS_LEGACY) {
     const valid = await ensureValidSession();
     if (valid) {
+      syncRealtimeAuth(valid);
       // Keep the access token fresh in the background for as long as this tab
       // stays open, so a long-idle tab doesn't start silently failing requests.
       setInterval(ensureValidSession, 4 * 60 * 1000);
