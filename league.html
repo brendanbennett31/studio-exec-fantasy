@@ -1519,6 +1519,21 @@ function App(){
           </div>
         </div>
 
+        {liveStatus==="loading"?(
+          // Real film/roster data (EXEC_COLORS, DISPLAY, PLAYER_NAMES) only
+          // gets rebuilt from Supabase once loadData()'s fetch resolves --
+          // until then those module-level vars still hold their hardcoded
+          // defaults (the original 5-player team codes), so rendering the
+          // tabs immediately used to flash that placeholder roster/zeroed
+          // stats for a moment before the real data replaced it. Showing a
+          // spinner instead until liveStatus leaves "loading" means the
+          // first thing anyone actually sees is real data.
+          <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"70px 0",gap:14}}>
+            <div style={{width:26,height:26,border:`2.5px solid ${theme.border}`,borderTopColor:theme.gold,borderRadius:"50%",animation:"spin 0.7s linear infinite"}}/>
+            <div style={{fontSize:11,color:theme.textMuted,letterSpacing:"0.15em",textTransform:"uppercase",fontFamily:"monospace"}}>Loading league…</div>
+          </div>
+        ):(
+        <div style={{animation:"fadeSlideUp 0.35s ease-out both"}}>
         {/* Endgame countdown banner - replaces "days left" tile concept */}
         {endgameActive&&<EndgameCountdownBanner theme={theme}/>}
 
@@ -1547,10 +1562,13 @@ function App(){
         {tab==="acquisitions"&&!IS_LEGACY&&leagueCtx?.acquisitions_enabled&&<div key="acquisitions" style={{animation:"fadeSlideUp 0.4s ease-out both"}}><AcquisitionsTab leagueContext={leagueCtx} members={leagueMembers} userMembership={membership}/></div>}
         {tab==="rules"&&<div key="rules" style={{animation:"fadeSlideUp 0.4s ease-out both"}}><Rules leagueCtx={leagueCtx}/></div>}
         {tab==="manage"&&isAdmin&&!IS_LEGACY&&<div key="manage" style={{animation:"fadeSlideUp 0.4s ease-out both"}}><ManageTab leagueContext={leagueCtx} members={leagueMembers} userMembership={membership}/></div>}
+        </div>
+        )}
         <div style={{textAlign:"center",padding:"24px 0 8px",fontSize:10,color:"#3a3a4e",letterSpacing:"0.12em",textTransform:"uppercase",fontFamily:"monospace"}}>{days} days until Oscar Sunday &bull; March 14, 2027</div>
       </div>
       <style>{`
         @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+        @keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
         @keyframes fadeSlideUp{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:translateY(0)}}
         @keyframes drawLine{from{stroke-dashoffset:var(--line-len)}to{stroke-dashoffset:0}}
         @keyframes clipGrow{from{transform:scaleY(0);transform-origin:bottom}to{transform:scaleY(1);transform-origin:bottom}}
