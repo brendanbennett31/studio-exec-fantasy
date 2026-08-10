@@ -260,10 +260,21 @@ async function loadLeagueContext() {
 
     const session = getSession();
     if (session?.user?.id) {
-      const members = await supabaseFetch("league_members",
-        `league_id=eq.${LEAGUE_UUID}&select=*,profile:profiles(id,display_name,email)&order=joined_at.asc`
-      );
-      LEAGUE_MEMBERS = members || [];
+      // Embedding profile:profiles(...) here used to silently return null
+      // for every member except the signed-in viewer -- profiles has always
+      // been SELECT-restricted to your own row, so the embed only ever
+      // resolved for yourself, no matter what another member's
+      // display_name was set to. league_member_names (migration 036) is
+      // the authenticated equivalent of public_member_names: exposes only
+      // display_name (never email), scoped to leagues you're also a
+      // member of.
+      const [members, names] = await Promise.all([
+        supabaseFetch("league_members", `league_id=eq.${LEAGUE_UUID}&select=*&order=joined_at.asc`),
+        supabaseFetch("league_member_names", `league_id=eq.${LEAGUE_UUID}`)
+      ]);
+      const nameByUserId = {};
+      (names || []).forEach(n => { nameByUserId[n.user_id] = n.display_name; });
+      LEAGUE_MEMBERS = (members || []).map(m => ({ ...m, profile: { display_name: nameByUserId[m.user_id] || null } }));
       USER_MEMBERSHIP = LEAGUE_MEMBERS.find(m => m.user_id === session.user.id) || null;
     } else if (PUBLIC_VIEW_MODE) {
       // Anonymous public viewer — read display names from the narrow
