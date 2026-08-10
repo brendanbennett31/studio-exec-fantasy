@@ -88,26 +88,44 @@ function getSession() {
   } catch(e) { return null; }
 }
 
+// Every open tab polls independently against the one session stored in
+// localStorage, and Supabase rotates refresh_token on every use -- without
+// coordination, two tabs refreshing near-simultaneously would both send the
+// same single-use refresh_token, only one would succeed, and the loser used
+// to get treated as a real logout, wiping the session for every tab sharing
+// this storage. navigator.locks serializes the actual refresh across tabs;
+// re-checking localStorage once inside the lock picks up another tab's
+// already-completed refresh instead of racing Supabase again with a token
+// that's likely already been rotated out.
 async function refreshSession(s) {
-  try {
-    if (!s.refresh_token) return null;
-    const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
-      method: 'POST',
-      headers: { 'apikey': SUPABASE_ANON_KEY, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ refresh_token: s.refresh_token })
-    });
-    if (!res.ok) return null;
-    const data = await res.json();
-    if (!data.access_token) return null;
-    const newSession = {
-      access_token: data.access_token,
-      refresh_token: data.refresh_token || s.refresh_token,
-      expires_at: data.expires_at || Math.floor(Date.now()/1000) + 3600,
-      user: data.user || s.user
-    };
-    localStorage.setItem('sef_session', JSON.stringify(newSession));
-    return newSession;
-  } catch(e) { return null; }
+  const doRefresh = async () => {
+    try {
+      const raw = localStorage.getItem('sef_session');
+      const current = raw ? JSON.parse(raw) : null;
+      if (current && current.refresh_token && current.refresh_token !== s.refresh_token) {
+        const expiresAt = current.expires_at ? new Date(current.expires_at * 1000) : null;
+        if (!expiresAt || expiresAt > new Date(Date.now() + 60 * 1000)) return current;
+      }
+      if (!s.refresh_token) return null;
+      const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
+        method: 'POST',
+        headers: { 'apikey': SUPABASE_ANON_KEY, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refresh_token: s.refresh_token })
+      });
+      if (!res.ok) return null;
+      const data = await res.json();
+      if (!data.access_token) return null;
+      const newSession = {
+        access_token: data.access_token,
+        refresh_token: data.refresh_token || s.refresh_token,
+        expires_at: data.expires_at || Math.floor(Date.now()/1000) + 3600,
+        user: data.user || s.user
+      };
+      localStorage.setItem('sef_session', JSON.stringify(newSession));
+      return newSession;
+    } catch(e) { return null; }
+  };
+  return navigator.locks ? navigator.locks.request('sef_session_refresh', doRefresh) : doRefresh();
 }
 
 // Tries the refresh_token before treating an expired access token as "logged

@@ -1,0 +1,12 @@
+-- rename_my_team() was only ever meant to be callable by a logged-in member
+-- (migration 016 already does `revoke all ... from public` then
+-- `grant execute ... to authenticated`), but Supabase grants its own
+-- default EXECUTE privilege to `anon` on every public-schema function
+-- independent of the PUBLIC pseudo-role -- revoking from PUBLIC alone
+-- doesn't touch that. Confirmed callable with the anon key; not actually
+-- exploitable today since the function's first lookup keys off auth.uid(),
+-- which is null for anon and always hits the "not a member" exception --
+-- but same class of gap as the leagues table anon-grant issue, worth
+-- closing explicitly rather than relying on the function's own logic to
+-- keep saving it.
+revoke execute on function public.rename_my_team(uuid, text) from anon;

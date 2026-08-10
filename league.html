@@ -128,26 +128,44 @@ function getSession() {
   } catch(e) { return null; }
 }
 
+// Every open tab polls independently against the one session stored in
+// localStorage, and Supabase rotates refresh_token on every use -- without
+// coordination, two tabs refreshing near-simultaneously would both send the
+// same single-use refresh_token, only one would succeed, and the loser used
+// to get treated as a real logout, wiping the session for every tab sharing
+// this storage. navigator.locks serializes the actual refresh across tabs;
+// re-checking localStorage once inside the lock picks up another tab's
+// already-completed refresh instead of racing Supabase again with a token
+// that's likely already been rotated out.
 async function refreshSession(s) {
-  try {
-    if (!s.refresh_token) return null;
-    const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
-      method: 'POST',
-      headers: { 'apikey': SUPABASE_ANON_KEY, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ refresh_token: s.refresh_token })
-    });
-    if (!res.ok) return null;
-    const data = await res.json();
-    if (!data.access_token) return null;
-    const newSession = {
-      access_token: data.access_token,
-      refresh_token: data.refresh_token || s.refresh_token,
-      expires_at: data.expires_at || Math.floor(Date.now()/1000) + 3600,
-      user: data.user || s.user
-    };
-    localStorage.setItem('sef_session', JSON.stringify(newSession));
-    return newSession;
-  } catch(e) { return null; }
+  const doRefresh = async () => {
+    try {
+      const raw = localStorage.getItem('sef_session');
+      const current = raw ? JSON.parse(raw) : null;
+      if (current && current.refresh_token && current.refresh_token !== s.refresh_token) {
+        const expiresAt = current.expires_at ? new Date(current.expires_at * 1000) : null;
+        if (!expiresAt || expiresAt > new Date(Date.now() + 60 * 1000)) return current;
+      }
+      if (!s.refresh_token) return null;
+      const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
+        method: 'POST',
+        headers: { 'apikey': SUPABASE_ANON_KEY, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refresh_token: s.refresh_token })
+      });
+      if (!res.ok) return null;
+      const data = await res.json();
+      if (!data.access_token) return null;
+      const newSession = {
+        access_token: data.access_token,
+        refresh_token: data.refresh_token || s.refresh_token,
+        expires_at: data.expires_at || Math.floor(Date.now()/1000) + 3600,
+        user: data.user || s.user
+      };
+      localStorage.setItem('sef_session', JSON.stringify(newSession));
+      return newSession;
+    } catch(e) { return null; }
+  };
+  return navigator.locks ? navigator.locks.request('sef_session_refresh', doRefresh) : doRefresh();
 }
 
 // Ensures the stored session has a live access token, refreshing it via the
@@ -1414,6 +1432,7 @@ function App(){
               onMouseLeave={e=>e.currentTarget.style.color="#6a6a7e"}>Sign In</a>
           </>}
           {!PUBLIC_VIEW_MODE&&isAdmin&&<button onClick={()=>setTab("manage")} style={{fontSize:11,padding:"5px 12px",borderRadius:6,border:`1px solid ${tab==="manage"?"rgba(212,168,67,0.4)":"#222233"}`,background:tab==="manage"?"rgba(212,168,67,0.08)":"transparent",color:tab==="manage"?"#d4a843":"#6a6a7e",cursor:"pointer",fontWeight:600,transition:"all 0.15s"}}>Manage</button>}
+          {!PUBLIC_VIEW_MODE&&<NotificationBell/>}
           {/* Profile icon */}
           {!PUBLIC_VIEW_MODE&&<div style={{position:"relative"}}>
             <button onClick={()=>setShowProfileMenu(p=>!p)}
@@ -1557,6 +1576,79 @@ function CountdownBadge({release,status}){
     <span style={{fontSize:8,background:"rgba(251,191,36,0.12)",color:"#fbbf24",padding:"1px 5px",borderRadius:3,fontWeight:700}}>
       {label}
     </span>
+  );
+}
+// In-app notifications bell. Polls rather than using Supabase Realtime
+// (not set up anywhere in this project yet) -- a 60s poll is plenty for
+// notification freshness and needs no new infrastructure.
+function NotificationBell(){
+  const[open,setOpen]=useState(false);
+  const[items,setItems]=useState([]);
+  const[loaded,setLoaded]=useState(false);
+  const session=getSession();
+  const uid=session?.user?.id;
+
+  async function load(){
+    if(!uid) return;
+    try{
+      const rows=await supabaseFetch("notifications",`user_id=eq.${uid}&order=created_at.desc&limit=20`);
+      setItems(rows||[]);
+    }catch(e){ console.warn("[notifications] load failed:", e.message); }
+    setLoaded(true);
+  }
+
+  useEffect(()=>{
+    load();
+    const t=setInterval(load,60000);
+    return()=>clearInterval(t);
+  },[]);
+
+  const unread=items.filter(n=>!n.read);
+
+  async function markRead(ids){
+    if(!ids.length) return;
+    try{
+      await fetch(`${SUPABASE_URL}/rest/v1/rpc/mark_notifications_read`,{
+        method:"POST",
+        headers:{"apikey":SUPABASE_ANON_KEY,"Authorization":`Bearer ${session?.access_token||SUPABASE_ANON_KEY}`,"Content-Type":"application/json"},
+        body:JSON.stringify({p_ids:ids})
+      });
+      setItems(prev=>prev.map(n=>ids.includes(n.id)?{...n,read:true}:n));
+    }catch(e){ console.warn("[notifications] mark-read failed:", e.message); }
+  }
+
+  function timeAgo(iso){
+    const mins=Math.floor((Date.now()-new Date(iso).getTime())/60000);
+    if(mins<1) return "just now";
+    if(mins<60) return `${mins}m ago`;
+    const hrs=Math.floor(mins/60);
+    if(hrs<24) return `${hrs}h ago`;
+    return `${Math.floor(hrs/24)}d ago`;
+  }
+
+  if(!uid) return null;
+
+  return(
+    <div style={{position:"relative"}}>
+      <button onClick={()=>{const willOpen=!open;setOpen(willOpen);if(willOpen&&unread.length)markRead(unread.map(n=>n.id));}}
+        style={{width:32,height:32,borderRadius:"50%",background:open?"#22223344":"transparent",border:"1.5px solid #2a2a3a",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",position:"relative",flexShrink:0,transition:"all 0.15s"}}
+        onMouseEnter={e=>{if(!open)e.currentTarget.style.background="#22223344";}}
+        onMouseLeave={e=>{if(!open)e.currentTarget.style.background="transparent";}}>
+        <svg width="15" height="15" viewBox="0 0 14 14" fill="none"><path d="M7 1.5c-1.5 0-2.5 1.2-2.5 2.7v1.8c0 .5-.2 1-.5 1.4L3 8.8c-.3.4 0 1 .5 1h7c.5 0 .8-.6.5-1l-1-1.4c-.3-.4-.5-.9-.5-1.4V4.2C9.5 2.7 8.5 1.5 7 1.5z" stroke="#9a9ab0" strokeWidth="1.2" strokeLinejoin="round"/><path d="M5.7 11c.2.6.7 1 1.3 1s1.1-.4 1.3-1" stroke="#9a9ab0" strokeWidth="1.2" strokeLinecap="round"/></svg>
+        {unread.length>0&&<div style={{position:"absolute",top:2,right:3,width:8,height:8,borderRadius:"50%",background:"#ef4444",border:"1.5px solid #08080d"}}/>}
+      </button>
+      {open&&<div style={{position:"absolute",right:0,top:"calc(100% + 8px)",background:"#1a1a28",border:"1px solid #222233",borderRadius:10,width:300,maxHeight:400,overflowY:"auto",zIndex:100,boxShadow:"0 8px 24px rgba(0,0,0,0.4)"}}>
+        <div style={{padding:"10px 14px",borderBottom:"1px solid #222233",fontSize:12,fontWeight:700,color:"#e8e8f0"}}>Notifications</div>
+        {items.length===0&&<div style={{padding:"20px 14px",fontSize:12,color:"#6a6a7e",textAlign:"center"}}>{loaded?"No notifications yet.":"Loading…"}</div>}
+        {items.map(n=>(
+          <div key={n.id} style={{padding:"10px 14px",borderBottom:"1px solid #1a1a28",background:n.read?"transparent":"rgba(212,168,67,0.05)"}}>
+            <div style={{fontSize:12,fontWeight:600,color:"#e8e8f0",marginBottom:2}}>{n.title}</div>
+            {n.body&&<div style={{fontSize:11,color:"#8a8a9e",marginBottom:4}}>{n.body}</div>}
+            <div style={{fontSize:10,color:"#4a4a5e"}}>{timeAgo(n.created_at)}</div>
+          </div>
+        ))}
+      </div>}
+    </div>
   );
 }
 function Sparkler({width=120,height=40,intervalMs=2800,particleCount=18}){
@@ -4571,6 +4663,30 @@ function SettingsPanel({membership, leagueCtx, onClose}){
   const[msg,setMsg]=useState(null); // {text, error}
   const[showDeleteConfirm,setShowDeleteConfirm]=useState(false);
   const[deleteInput,setDeleteInput]=useState("");
+  const[notifPrefs,setNotifPrefs]=useState(null);
+  const[notifLoading,setNotifLoading]=useState(false);
+
+  useEffect(()=>{
+    if(tab!=="notifications"||notifPrefs||!session?.user?.id) return;
+    setNotifLoading(true);
+    supabaseFetch("notification_preferences",`user_id=eq.${session.user.id}`)
+      .then(rows=>{
+        setNotifPrefs(rows&&rows[0]?rows[0]:{notify_declarations:true,notify_new_leader:true,notify_new_film:true,notify_release_day:true});
+      })
+      .catch(()=>setNotifPrefs({notify_declarations:true,notify_new_leader:true,notify_new_film:true,notify_release_day:true}))
+      .finally(()=>setNotifLoading(false));
+  },[tab]);
+
+  async function toggleNotifPref(key){
+    const next={...notifPrefs,[key]:!notifPrefs[key]};
+    setNotifPrefs(next);
+    const res=await fetch(`${SUPABASE_URL}/rest/v1/notification_preferences`,{
+      method:"POST",
+      headers:{"apikey":SUPABASE_ANON_KEY,"Authorization":`Bearer ${session?.access_token||SUPABASE_ANON_KEY}`,"Content-Type":"application/json","Prefer":"resolution=merge-duplicates,return=minimal"},
+      body:JSON.stringify({user_id:session.user.id,...next})
+    });
+    if(!res.ok) setMsg({text:"Failed to save notification preference",error:true});
+  }
 
   async function sbAuth(endpoint, body) {
     const res = await fetch(`${SUPABASE_URL}/auth/v1/${endpoint}`, {
@@ -4679,8 +4795,8 @@ function SettingsPanel({membership, leagueCtx, onClose}){
         </div>
         {/* Tabs */}
         <div style={{display:"flex",borderBottom:"1px solid #222233",flexShrink:0}}>
-          {["profile","password","league"].map(t=>(
-            <button key={t} onClick={()=>{setTab(t);setMsg(null);}} style={{flex:1,padding:"10px 6px",background:"none",border:"none",borderBottom:`2px solid ${tab===t?"#d4a843":"transparent"}`,color:tab===t?"#d4a843":"#6a6a7e",fontSize:12,fontWeight:600,cursor:"pointer",textTransform:"uppercase",letterSpacing:"0.08em",fontFamily:"inherit",transition:"all 0.15s"}}>
+          {["profile","password","league","notifications"].map(t=>(
+            <button key={t} onClick={()=>{setTab(t);setMsg(null);}} style={{flex:1,padding:"10px 6px",background:"none",border:"none",borderBottom:`2px solid ${tab===t?"#d4a843":"transparent"}`,color:tab===t?"#d4a843":"#6a6a7e",fontSize:11,fontWeight:600,cursor:"pointer",textTransform:"uppercase",letterSpacing:"0.06em",fontFamily:"inherit",transition:"all 0.15s"}}>
               {t==="league"?"League":t.charAt(0).toUpperCase()+t.slice(1)}
             </button>
           ))}
@@ -4771,6 +4887,30 @@ function SettingsPanel({membership, leagueCtx, onClose}){
                   </div>
                 )}
               </div>
+            </div>
+          )}
+
+          {tab==="notifications"&&(
+            <div>
+              <div style={{fontSize:12,color:"#6a6a7e",marginBottom:20,lineHeight:1.6}}>Choose which events notify you. These apply across every league you're in.</div>
+              {notifLoading&&<div style={{fontSize:12,color:"#6a6a7e"}}>Loading…</div>}
+              {notifPrefs&&[
+                ["notify_declarations","Acquisitions Declarations","Someone declares intent to bid in the weekly Acquisitions market"],
+                ["notify_new_leader","New Leaderboard Leader","The standings leader changes in one of your leagues"],
+                ["notify_new_film","New Film Added","A new film is added to the Universe list"],
+                ["notify_release_day","Release Day","A film on your slate releases today"],
+              ].map(([key,label,desc])=>(
+                <div key={key} className="form-toggle-row" style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 0",borderBottom:"1px solid rgba(34,34,51,0.5)"}}>
+                  <div style={{paddingRight:14}}>
+                    <div style={{fontSize:13,fontWeight:600,color:"#e8e8f0"}}>{label}</div>
+                    <div style={{fontSize:11,color:"#6a6a7e",marginTop:2}}>{desc}</div>
+                  </div>
+                  <label style={{width:40,height:22,borderRadius:11,border:"none",background:notifPrefs[key]?"#34d399":"#3a3a50",cursor:"pointer",position:"relative",transition:"background 0.2s",flexShrink:0}} onClick={()=>toggleNotifPref(key)}>
+                    <div style={{width:16,height:16,borderRadius:"50%",background:"#fff",position:"absolute",top:3,left:notifPrefs[key]?20:3,transition:"left 0.2s"}}/>
+                  </label>
+                </div>
+              ))}
+              <div style={{fontSize:10,color:"#6a6a7e",marginTop:14}}>More notification types (and email/push delivery) are on the way — only Acquisitions Declarations is fully wired up right now.</div>
             </div>
           )}
         </div>
