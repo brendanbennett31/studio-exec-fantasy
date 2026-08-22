@@ -1330,8 +1330,16 @@ function App(){
       if(!slateLoaded) setLiveStatus("fallback");
 
       // ── 2. Weekly BO snapshots — from Supabase ──────────────────────────
+      // Unlike daily_bo below, these two are now written by
+      // snapshot_weekly_bo_and_poi() (migration 046) keyed by the REAL
+      // leagues.id uuid straight from league_picks.league_id -- never the
+      // legacy "sef-2026" text id, even for the one league LEGACY_ID_MAP
+      // maps to it. So this fetch (unlike daily_bo's) must use LEAGUE_UUID
+      // directly, not the legacy-mapped LEAGUE_ID, or the live league would
+      // keep reading the old frozen "sef-2026"-keyed rows forever.
+      const weeklySnapshotLeagueId = LEAGUE_UUID || LEAGUE_ID;
       try{
-        const rows = await supabaseFetch("weekly_bo_snapshots", `league_id=eq.${LEAGUE_ID}&order=snapshot_date.asc`);
+        const rows = await supabaseFetch("weekly_bo_snapshots", `league_id=eq.${weeklySnapshotLeagueId}&order=snapshot_date.asc`);
         if(rows.length>0){
           const byWeek={};
           rows.forEach(r=>{
@@ -1345,7 +1353,7 @@ function App(){
 
       // ── 3. Weekly POI snapshots — from Supabase ──────────────────────────
       try{
-        const rows = await supabaseFetch("weekly_poi_snapshots", `league_id=eq.${LEAGUE_ID}&order=snapshot_date.asc`);
+        const rows = await supabaseFetch("weekly_poi_snapshots", `league_id=eq.${weeklySnapshotLeagueId}&order=snapshot_date.asc`);
         if(rows.length>0){
           const byWeek={};
           rows.forEach(r=>{
