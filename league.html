@@ -1707,10 +1707,18 @@ function NotificationBell(){
     return()=>document.removeEventListener("mousedown", onDocMouseDown);
   },[open]);
 
+  // Scoped to this league (plus league_id-null rows, e.g. new-film-added --
+  // those aren't tied to any one league). Was previously unscoped entirely,
+  // so a player would see e.g. "X takes the lead!" notifications from every
+  // OTHER league they're also a member of while looking at this one.
+  const leagueFilter = LEAGUE_UUID
+    ? `or=(league_id.eq.${LEAGUE_UUID},league_id.is.null)`
+    : `league_id=is.null`;
+
   async function load(){
     if(!uid) return;
     try{
-      const rows=await supabaseFetch("notifications",`user_id=eq.${uid}&order=created_at.desc&limit=20`);
+      const rows=await supabaseFetch("notifications",`user_id=eq.${uid}&${leagueFilter}&order=created_at.desc&limit=20`);
       setItems(rows||[]);
     }catch(e){ console.warn("[notifications] load failed:", e.message); }
     setLoaded(true);
@@ -1751,7 +1759,10 @@ function NotificationBell(){
     const prev=items;
     setItems([]);
     try{
-      await fetch(`${SUPABASE_URL}/rest/v1/notifications?user_id=eq.${uid}`,{
+      // Scoped the same way load() is -- otherwise "Clear all" from inside
+      // one league would silently wipe notifications belonging to every
+      // other league the user is in too.
+      await fetch(`${SUPABASE_URL}/rest/v1/notifications?user_id=eq.${uid}&${leagueFilter}`,{
         method:"DELETE",
         headers:{"apikey":SUPABASE_ANON_KEY,"Authorization":`Bearer ${session?.access_token||SUPABASE_ANON_KEY}`}
       });
