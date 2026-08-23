@@ -90,6 +90,14 @@ td{padding:6px 14px;vertical-align:middle}
 .col-actions{width:44px;text-align:center}
 .icon-btn{background:none;border:none;color:var(--muted);cursor:pointer;padding:6px;border-radius:5px;display:inline-flex;align-items:center;justify-content:center;transition:all 0.15s}
 .icon-btn:hover{color:var(--red);background:rgba(239,68,68,0.1)}
+.icon-btn-text{font-size:11px;font-weight:600;padding:3px 8px;color:var(--gold)}
+.icon-btn-text:hover{color:#0d0d14;background:var(--gold)}
+
+/* ── LOCK STATUS (universe.html admin monitoring columns) ── */
+.col-locked{display:flex;align-items:center;gap:6px;white-space:nowrap}
+.lock-badge{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:20px;font-size:11px;font-weight:600;white-space:nowrap}
+.lock-badge-locked{background:rgba(106,106,126,0.15);color:var(--muted)}
+.lock-badge-open{background:rgba(52,211,153,0.12);color:var(--green)}
 .save-flash{animation:flashGreen 0.6s ease-out}
 @keyframes flashGreen{0%{box-shadow:0 0 0 1px var(--green)}100%{box-shadow:0 0 0 1px transparent}}
 
@@ -442,16 +450,22 @@ function getVisibleFilms() {
     const q = searchQuery.trim().toLowerCase();
     list = list.filter(f => (f.title||'').toLowerCase().includes(q));
   }
+  const DATE_KEYS = ['release_date', 'last_check_date'];
+  const NUMERIC_KEYS = ['bo', 'opening_weekend', 'no_change_days'];
   list = [...list].sort((a, b) => {
-    if (sortKey === 'release_date') {
-      // Missing release dates always sort last, in either direction —
-      // treating them as +Infinity flips them to the front on a descending
-      // sort, which reads as "no date yet" jumping ahead of dated films.
-      const av = a.release_date, bv = b.release_date;
+    if (DATE_KEYS.includes(sortKey)) {
+      // Missing dates always sort last, in either direction — treating
+      // them as +Infinity flips them to the front on a descending sort,
+      // which reads as "no date yet" jumping ahead of dated films.
+      const av = a[sortKey], bv = b[sortKey];
       if (!av && !bv) return 0;
       if (!av) return 1;
       if (!bv) return -1;
       const cmp = new Date(av).getTime() - new Date(bv).getTime();
+      return sortDir === 'asc' ? cmp : -cmp;
+    }
+    if (NUMERIC_KEYS.includes(sortKey)) {
+      const cmp = (Number(a[sortKey])||0) - (Number(b[sortKey])||0);
       return sortDir === 'asc' ? cmp : -cmp;
     }
     const av = (a[sortKey]||'').toString().toLowerCase();
@@ -501,6 +515,13 @@ function renderTable() {
               <th class="sortable col-title" onclick="handleSort('title')">Title${sortArrow('title')}</th>
               <th class="sortable" onclick="handleSort('release_date')">Release Date${sortArrow('release_date')}</th>
               <th class="col-imdb">IMDb ID</th>
+              ${isAdmin ? `
+                <th class="sortable" onclick="handleSort('bo')">Box Office${sortArrow('bo')}</th>
+                <th class="sortable" onclick="handleSort('opening_weekend')">Opening Wknd${sortArrow('opening_weekend')}</th>
+                <th class="col-locked">Locked</th>
+                <th class="sortable" onclick="handleSort('no_change_days')">Days Unchanged${sortArrow('no_change_days')}</th>
+                <th class="sortable" onclick="handleSort('last_check_date')">Last Checked${sortArrow('last_check_date')}</th>
+              ` : ''}
               <th class="col-notes">Notes</th>
               <th class="col-festival">Festival Protected Until</th>
               ${isAdmin ? '<th class="col-actions"></th>' : ''}
@@ -535,6 +556,18 @@ function renderRow(f) {
         onchange="saveReleaseDate(${f.id},this.value||null,this)"/></td>
       <td class="col-imdb"><input class="cell-input" value="${escHtml(f.imdb_id)||''}" placeholder="tt…"
         onblur="saveTitleOrImdb(${f.id},'imdb_id',this.value,this)" onkeydown="if(event.key==='Enter')this.blur()"/></td>
+      <td><div class="cell-static ${f.bo?'':'muted'}">${fmtMoney(f.bo)}</div></td>
+      <td><div class="cell-static ${f.opening_weekend?'':'muted'}">${fmtMoney(f.opening_weekend)}</div></td>
+      <td class="col-locked">
+        ${f.locked
+          ? `<span class="lock-badge lock-badge-locked" title="Won't be re-checked as often -- see Days Unchanged">🔒 Locked</span>
+             <button class="icon-btn icon-btn-text" title="Manually unlock -- also resets Days Unchanged to 0, otherwise the next scrape would just re-lock it immediately" onclick="unlockFilm(${f.id})">Unlock</button>`
+          : `<span class="lock-badge lock-badge-open">Open</span>
+             <button class="icon-btn icon-btn-text" title="Manually force-lock" onclick="lockFilm(${f.id})">Lock</button>`
+        }
+      </td>
+      <td><div class="cell-static">${f.no_change_days ?? 0}</div></td>
+      <td><div class="cell-static ${f.last_check_date?'':'muted'}">${formatDate(f.last_check_date)}</div></td>
       <td class="col-notes"><input class="cell-input" value="${escHtml(f.notes)||''}" placeholder="—"
         onblur="saveField(${f.id},'notes',this.value,this)" onkeydown="if(event.key==='Enter')this.blur()"/></td>
       <td class="col-festival"><input class="cell-input" type="date" value="${f.festival_protected_until||''}"
@@ -546,6 +579,49 @@ function renderRow(f) {
       </td>
     </tr>
   `;
+}
+
+function fmtMoney(n) {
+  const v = Number(n);
+  if (!v) return '$0';
+  return '$' + v.toLocaleString('en-US');
+}
+
+// Resetting no_change_days alongside locked is what makes this a real
+// override rather than a no-op: leaving it at >=LOCK_THRESHOLD would just
+// have the very next scrape run see "still unchanged" and re-lock it
+// immediately, since scrapeUniverseBoxOffice() derives `locked` fresh from
+// no_change_days every run rather than trusting whatever's already stored.
+async function unlockFilm(filmId) {
+  if (!isAdmin) return;
+  const { ok } = await sbFetch(`/rest/v1/universe_films?id=eq.${filmId}`, {
+    method: 'PATCH',
+    headers: { 'Prefer': 'return=minimal' },
+    body: JSON.stringify({ locked: false, no_change_days: 0 })
+  });
+  if (ok) {
+    const film = films.find(f => f.id === filmId);
+    if (film) { film.locked = false; film.no_change_days = 0; }
+    renderTable();
+  } else {
+    showToast('Failed to unlock — try again', true);
+  }
+}
+
+async function lockFilm(filmId) {
+  if (!isAdmin) return;
+  const { ok } = await sbFetch(`/rest/v1/universe_films?id=eq.${filmId}`, {
+    method: 'PATCH',
+    headers: { 'Prefer': 'return=minimal' },
+    body: JSON.stringify({ locked: true })
+  });
+  if (ok) {
+    const film = films.find(f => f.id === filmId);
+    if (film) film.locked = true;
+    renderTable();
+  } else {
+    showToast('Failed to lock — try again', true);
+  }
 }
 
 function formatDate(d) {
