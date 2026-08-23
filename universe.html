@@ -93,6 +93,14 @@ td{padding:6px 14px;vertical-align:middle}
 .icon-btn-text{font-size:11px;font-weight:600;padding:3px 8px;color:var(--gold)}
 .icon-btn-text:hover{color:#0d0d14;background:var(--gold)}
 
+/* ── EXTERNAL LINKS (title -> Box Office Mojo / TMDb search) ── */
+.title-cell{display:flex;align-items:center;gap:2px}
+.title-cell .cell-input{flex:1;min-width:0}
+.cell-link{display:inline-flex;align-items:baseline;gap:5px;padding:7px 8px;color:var(--text);font-size:13px;text-decoration:none}
+.cell-link:hover{color:var(--gold)}
+.cell-link:hover .ext-arrow{opacity:1}
+.ext-arrow{font-size:11px;opacity:0.35;transition:opacity 0.15s}
+
 /* ── LOCK STATUS (universe.html admin monitoring columns) ── */
 .col-locked{white-space:nowrap}
 .lock-cell{display:inline-flex;align-items:center;gap:8px}
@@ -544,11 +552,24 @@ function renderTable() {
   `;
 }
 
+// Box Office Mojo has a direct, reliable URL shape keyed on imdb_id (used
+// throughout the scraper too), so that's the primary target whenever a
+// film has one. Falls back to a TMDb title search for anything without an
+// imdb_id yet -- less precise (no stored TMDb id to link straight to a
+// title page), but still gets you somewhere useful instead of a dead
+// click, and TMDb is this app's own source for discovering films in the
+// first place.
+function externalFilmUrl(f) {
+  if (f.imdb_id) return `https://www.boxofficemojo.com/title/${f.imdb_id}/`;
+  return `https://www.themoviedb.org/search?query=${encodeURIComponent(f.title||'')}`;
+}
+
 function renderRow(f) {
+  const extUrl = externalFilmUrl(f);
   if (!isAdmin) {
     return `
       <tr>
-        <td class="col-title"><div class="cell-static">${escHtml(f.title)||'—'}</div></td>
+        <td class="col-title"><a class="cell-link" href="${escHtml(extUrl)}" target="_blank" rel="noopener noreferrer" title="${f.imdb_id?'Open on Box Office Mojo':'Search on TMDb'}">${escHtml(f.title)||'—'} <span class="ext-arrow">↗</span></a></td>
         <td><div class="cell-static">${formatDate(f.release_date)}</div></td>
         <td class="col-imdb"><div class="cell-static">${escHtml(f.imdb_id)||'—'}</div></td>
         <td class="col-notes"><div class="cell-static ${f.notes?'':'muted'}">${escHtml(f.notes)||'—'}</div></td>
@@ -558,8 +579,15 @@ function renderRow(f) {
   }
   return `
     <tr data-film-id="${f.id}">
-      <td class="col-title"><input class="cell-input" value="${escHtml(f.title)}" placeholder="Title"
-        onblur="saveTitleOrImdb(${f.id},'title',this.value,this)" onkeydown="if(event.key==='Enter')this.blur()"/></td>
+      <td class="col-title">
+        <div class="title-cell">
+          <input class="cell-input" value="${escHtml(f.title)}" placeholder="Title"
+            onblur="saveTitleOrImdb(${f.id},'title',this.value,this)" onkeydown="if(event.key==='Enter')this.blur()"/>
+          <a class="icon-btn" href="${escHtml(extUrl)}" target="_blank" rel="noopener noreferrer" title="${f.imdb_id?'Open on Box Office Mojo':'Search on TMDb'}">
+            <svg width="12" height="12" viewBox="0 0 14 14" fill="none"><path d="M5.5 2.5H2.5A1 1 0 0 0 1.5 3.5V11.5A1 1 0 0 0 2.5 12.5H10.5A1 1 0 0 0 11.5 11.5V8.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 1.5H12.5V6" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/><path d="M6 8L12.5 1.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+          </a>
+        </div>
+      </td>
       <td><input class="cell-input" type="date" value="${f.release_date||''}"
         onchange="saveReleaseDate(${f.id},this.value||null,this)"/></td>
       <td class="col-imdb"><input class="cell-input" value="${escHtml(f.imdb_id)||''}" placeholder="tt…"
