@@ -94,10 +94,12 @@ td{padding:6px 14px;vertical-align:middle}
 .icon-btn-text:hover{color:#0d0d14;background:var(--gold)}
 
 /* ── LOCK STATUS (universe.html admin monitoring columns) ── */
-.col-locked{display:flex;align-items:center;gap:6px;white-space:nowrap}
-.lock-badge{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:20px;font-size:11px;font-weight:600;white-space:nowrap}
+.col-locked{white-space:nowrap}
+.lock-cell{display:inline-flex;align-items:center;gap:8px}
+.lock-badge{display:inline-flex;align-items:center;gap:5px;padding:4px 9px;border-radius:20px;font-size:11px;font-weight:600;line-height:1;white-space:nowrap}
 .lock-badge-locked{background:rgba(106,106,126,0.15);color:var(--muted)}
 .lock-badge-open{background:rgba(52,211,153,0.12);color:var(--green)}
+.lock-badge svg{flex-shrink:0}
 .save-flash{animation:flashGreen 0.6s ease-out}
 @keyframes flashGreen{0%{box-shadow:0 0 0 1px var(--green)}100%{box-shadow:0 0 0 1px transparent}}
 
@@ -239,6 +241,12 @@ textarea.form-input{resize:vertical;min-height:70px}
 <script>
 const SUPABASE_URL = "https://fymkwkbatklfynnhxrsf.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ5bWt3a2JhdGtsZnlubmh4cnNmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA3OTIzOTksImV4cCI6MjA5NjM2ODM5OX0.XjO1xIS2WLF8JNIwIAKqjCL65ISkSu2u7VaeG8gzaew";
+
+// Same minimal lock glyph league.html uses for a locked pick on the slate
+// (rect body + arc shackle) -- reused here instead of the 🔒 emoji, which
+// renders as an oversized, misaligned color glyph next to the badge text
+// in most browsers rather than a clean inline icon.
+const LOCK_ICON_SVG = '<svg width="9" height="9" viewBox="0 0 12 12" fill="none"><rect x="2" y="5.5" width="8" height="5.5" rx="1" stroke="currentColor" stroke-width="1.2"/><path d="M4 5.5V4a2 2 0 0 1 4 0v1.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>';
 
 let currentSession = null;
 let currentProfile = null;
@@ -559,12 +567,14 @@ function renderRow(f) {
       <td><div class="cell-static ${f.bo?'':'muted'}">${fmtMoney(f.bo)}</div></td>
       <td><div class="cell-static ${f.opening_weekend?'':'muted'}">${fmtMoney(f.opening_weekend)}</div></td>
       <td class="col-locked">
-        ${f.locked
-          ? `<span class="lock-badge lock-badge-locked" title="Won't be re-checked as often -- see Days Unchanged">🔒 Locked</span>
-             <button class="icon-btn icon-btn-text" title="Manually unlock -- also resets Days Unchanged to 0, otherwise the next scrape would just re-lock it immediately" onclick="unlockFilm(${f.id})">Unlock</button>`
-          : `<span class="lock-badge lock-badge-open">Open</span>
-             <button class="icon-btn icon-btn-text" title="Manually force-lock" onclick="lockFilm(${f.id})">Lock</button>`
-        }
+        <div class="lock-cell">
+          ${f.locked
+            ? `<span class="lock-badge lock-badge-locked" title="Won't be re-checked as often -- see Days Unchanged">${LOCK_ICON_SVG}Locked</span>
+               <button class="icon-btn icon-btn-text" title="Manually unlock -- also resets Days Unchanged to 0, otherwise the next scrape would just re-lock it immediately" onclick="unlockFilm(${f.id})">Unlock</button>`
+            : `<span class="lock-badge lock-badge-open">Open</span>
+               <button class="icon-btn icon-btn-text" title="Manually force-lock" onclick="lockFilm(${f.id})">Lock</button>`
+          }
+        </div>
       </td>
       <td><div class="cell-static">${f.no_change_days ?? 0}</div></td>
       <td><div class="cell-static ${f.last_check_date?'':'muted'}">${formatDate(f.last_check_date)}</div></td>
