@@ -58,9 +58,14 @@ header{position:sticky;top:0;z-index:50;height:60px;padding:0 32px;display:flex;
 
 /* ── LEAGUE CARDS ── */
 .leagues-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px}
-.league-card{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:24px;display:flex;flex-direction:column;gap:16px;transition:border-color 0.2s,transform 0.15s;position:relative;overflow:hidden}
+.league-card{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:24px;display:flex;flex-direction:column;gap:16px;transition:border-color 0.2s,transform 0.15s;position:relative;cursor:pointer}
 .league-card:hover{border-color:#3a3a50;transform:translateY(-2px)}
-.league-card::before{content:'';position:absolute;top:0;left:0;right:0;height:3px}
+/* No overflow:hidden on .league-card -- it would clip the kebab dropdown,
+   which needs to render outside the card's own box. The top gradient bar
+   below matches the card's own top corner radius instead, so it doesn't
+   need the parent's overflow to stay visually flush with the rounded
+   corners. */
+.league-card::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;border-radius:11px 11px 0 0}
 .league-notif-badge{position:absolute;top:10px;right:10px;width:9px;height:9px;border-radius:50%;background:#ef4444;border:1.5px solid var(--bg2);box-shadow:0 0 0 2px rgba(239,68,68,0.2)}
 .league-card.role-admin::before{background:linear-gradient(90deg,var(--gold),transparent)}
 .league-card.role-player::before{background:linear-gradient(90deg,var(--green),transparent)}
@@ -82,10 +87,23 @@ header{position:sticky;top:0;z-index:50;height:60px;padding:0 32px;display:flex;
 .draft-status.locked::before{background:var(--muted)}
 .draft-status.open{color:var(--green)}
 .draft-status.locked{color:var(--muted)}
-.league-card-actions{display:flex;gap:6px;margin-top:auto;flex-wrap:wrap}
-.league-card-actions .btn{flex:1;min-width:80px;justify-content:center;text-align:center}
-.btn-danger-ghost{background:transparent;color:#ef4444;border:1px solid rgba(239,68,68,0.3)}
-.btn-danger-ghost:hover{background:rgba(239,68,68,0.08);border-color:#ef4444}
+/* ── League card kebab menu ──
+   Card itself navigates into the league on click; everything that isn't
+   navigation (the menu button, its dropdown, the invite-code copy button)
+   stops propagation so it doesn't also trigger that. Settings that used to
+   be a row of always-visible buttons -- Share/Rename/Duplicate/Delete --
+   are tucked behind this so a stray tap doesn't land on Delete League. */
+.league-card-top-right{display:flex;align-items:center;gap:8px;flex-shrink:0}
+.league-menu-wrap{position:relative}
+.league-menu-btn{width:26px;height:26px;border-radius:6px;background:transparent;border:1px solid transparent;color:var(--muted);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all 0.15s}
+.league-menu-btn:hover{background:var(--bg3);border-color:var(--border);color:var(--text)}
+.league-menu-dropdown{position:absolute;right:0;top:calc(100% + 6px);background:#1a1a28;border:1px solid var(--border);border-radius:10px;padding:6px;min-width:190px;z-index:20;box-shadow:0 8px 24px rgba(0,0,0,0.4)}
+.league-menu-item{width:100%;display:flex;align-items:center;gap:9px;padding:8px 10px;background:transparent;border:none;color:var(--text);font-size:13px;cursor:pointer;border-radius:6px;text-align:left;font-family:inherit;white-space:nowrap}
+.league-menu-item:hover{background:var(--bg3)}
+.league-menu-item.danger{color:#ef4444}
+.league-menu-item.danger:hover{background:rgba(239,68,68,0.08)}
+.league-menu-code{padding:8px 10px;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted)}
+.league-menu-divider{height:1px;background:var(--border);margin:4px 2px}
 
 /* ── EMPTY STATE ── */
 .empty-state{background:var(--bg2);border:1px dashed var(--border);border-radius:12px;padding:48px 32px;text-align:center}
@@ -144,12 +162,6 @@ header{position:sticky;top:0;z-index:50;height:60px;padding:0 32px;display:flex;
 .profile-edit-form{display:none;margin-top:16px;padding-top:16px;border-top:1px solid var(--border)}
 .profile-edit-form.show{display:block}
 
-/* ── INVITE CODE ── */
-.invite-code-box{background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:14px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:12px}
-.invite-code{font-family:'JetBrains Mono',monospace;font-size:18px;font-weight:700;letter-spacing:0.15em;color:var(--gold)}
-.copy-btn{background:none;border:none;color:var(--muted);cursor:pointer;font-size:12px;padding:4px 8px;border-radius:4px;transition:all 0.15s}
-.copy-btn:hover{color:var(--text);background:var(--border)}
-
 /* ── LOADING ── */
 .loading-screen{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:60vh;gap:16px}
 .loading-logo{font-family:'Bebas Neue',sans-serif;font-size:32px;letter-spacing:0.12em;color:var(--gold);opacity:0.5}
@@ -162,12 +174,6 @@ header{position:sticky;top:0;z-index:50;height:60px;padding:0 32px;display:flex;
   header{padding:0 16px}
   .form-row{grid-template-columns:1fr}
   .profile-card{flex-direction:column;align-items:flex-start}
-  /* Buttons stack full-width instead of shrinking below their own text —
-     the previous flex:1/min-width:80px let "View League ->" etc. shrink
-     narrower than its nowrap text, which then got clipped by the card's
-     overflow:hidden. */
-  .league-card-actions{flex-direction:column}
-  .league-card-actions .btn{flex:none;width:100%;min-width:0}
 }
 </style>
 </head>
@@ -685,28 +691,54 @@ function renderLeagueCard(membership) {
   const role = membership.role;
   const teamName = membership.team_name || '—';
   const draftOpen = league.draft_status === 'open';
-
-  const inviteSection = role === 'admin' ? `
-    <div style="padding-top:12px;border-top:1px solid var(--border)">
-      <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:6px">Invite Code</div>
-      <div class="invite-code-box">
-        <div class="invite-code">${escHtml(league.invite_code || '—')}</div>
-        <button class="copy-btn" onclick="copyInviteCode('${escHtml(league.invite_code)}', this)">Copy</button>
-      </div>
-    </div>
-  ` : '';
-
   const hasUnread = UNREAD_LEAGUE_IDS.has(league.id);
 
+  const menuItems = role === 'admin' ? `
+    <button class="league-menu-item" onclick="event.stopPropagation();copyInviteLink('${league.id}', this)">
+      <svg width="13" height="13" viewBox="0 0 14 14" fill="none"><path d="M9.5 5.5L4.5 8.5M9.5 8.5L4.5 5.5" stroke="currentColor" stroke-width="1.2"/><circle cx="10.5" cy="4" r="2" stroke="currentColor" stroke-width="1.2"/><circle cx="10.5" cy="10" r="2" stroke="currentColor" stroke-width="1.2"/><circle cx="3.5" cy="7" r="2" stroke="currentColor" stroke-width="1.2"/></svg>
+      <span class="league-menu-item-label">Share Link</span>
+    </button>
+    ${league.invite_code ? `<div class="league-menu-code">Code: ${escHtml(league.invite_code)}</div>` : ''}
+    <div class="league-menu-divider"></div>
+    <button class="league-menu-item" onclick="event.stopPropagation();closeLeagueMenus();renameLeague('${league.id}', '${escHtml(league.name)}')">
+      <svg width="13" height="13" viewBox="0 0 14 14" fill="none"><path d="M9.5 2.5l2 2L4.5 11.5l-2.7.7.7-2.7L9.5 2.5z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>
+      Rename
+    </button>
+    <button class="league-menu-item" onclick="event.stopPropagation();closeLeagueMenus();openDuplicateModal('${league.id}', '${escHtml(league.name)}', ${league.season})">
+      <svg width="13" height="13" viewBox="0 0 14 14" fill="none"><rect x="4.5" y="4.5" width="8" height="8" rx="1" stroke="currentColor" stroke-width="1.2"/><path d="M2.5 9.5V2.5a1 1 0 0 1 1-1h7" stroke="currentColor" stroke-width="1.2"/></svg>
+      Duplicate
+    </button>
+    <div class="league-menu-divider"></div>
+    <button class="league-menu-item danger" onclick="event.stopPropagation();closeLeagueMenus();confirmDeleteLeague('${league.id}', '${escHtml(league.name)}')">
+      <svg width="13" height="13" viewBox="0 0 14 14" fill="none"><path d="M2.5 3.5h9M5.5 3.5V2a1 1 0 0 1 1-1h1a1 1 0 0 1 1 1v1.5M11 3.5l-.6 8.1a1 1 0 0 1-1 .9H4.6a1 1 0 0 1-1-.9L3 3.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      Delete League
+    </button>
+  ` : `
+    <button class="league-menu-item danger" onclick="event.stopPropagation();closeLeagueMenus();confirmLeaveLeague('${league.id}', '${escHtml(league.name)}')">
+      <svg width="13" height="13" viewBox="0 0 14 14" fill="none"><path d="M5.5 2.5h-2a1 1 0 0 0-1 1v7a1 1 0 0 0 1 1h2M9 4.5l2.5 2.5-2.5 2.5M11.3 7H5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      Leave League
+    </button>
+  `;
+
   return `
-    <div class="league-card role-${role}">
+    <div class="league-card role-${role}" onclick="location.href='/league?id=${league.id}'">
       ${hasUnread ? `<div class="league-notif-badge" title="Unread notifications in this league"></div>` : ''}
       <div class="league-card-top">
         <div>
           <div class="league-name">${escHtml(league.name)}</div>
           <div class="league-season">Season ${escHtml(league.season)} · ${escHtml(teamName)}</div>
         </div>
-        <div class="role-badge ${role}">${role}</div>
+        <div class="league-card-top-right" onclick="event.stopPropagation()">
+          <div class="role-badge ${role}">${role}</div>
+          <div class="league-menu-wrap">
+            <button class="league-menu-btn" title="League settings" onclick="toggleLeagueMenu('${league.id}', event)">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="3" r="1.2" fill="currentColor"/><circle cx="7" cy="7" r="1.2" fill="currentColor"/><circle cx="7" cy="11" r="1.2" fill="currentColor"/></svg>
+            </button>
+            <div id="league-menu-${league.id}" class="league-menu-dropdown" style="display:none">
+              ${menuItems}
+            </div>
+          </div>
+        </div>
       </div>
       <div class="league-stats">
         <div class="league-stat">
@@ -721,20 +753,29 @@ function renderLeagueCard(membership) {
           <div class="draft-status ${league.draft_status}">${draftOpen ? 'Draft Open' : 'Draft Locked'}</div>
         </div>
       </div>
-      ${inviteSection}
-      <div class="league-card-actions">
-        <a class="btn btn-primary btn-sm" href="/league?id=${league.id}" style="text-decoration:none">View League →</a>
-        ${role === 'admin' ? `<button class="btn btn-ghost btn-sm" onclick="copyInviteLink('${league.id}', this)">Share Link</button>` : ''}
-        ${role === 'admin' ? `<button class="btn btn-ghost btn-sm" onclick="renameLeague('${league.id}', '${escHtml(league.name)}')">Rename</button>` : ''}
-        ${role === 'admin' ? `<button class="btn btn-ghost btn-sm" onclick="openDuplicateModal('${league.id}', '${escHtml(league.name)}', ${league.season})">Duplicate</button>` : ''}
-        ${role === 'admin'
-          ? `<button class="btn btn-danger-ghost btn-sm" onclick="confirmDeleteLeague('${league.id}', '${escHtml(league.name)}')">Delete League</button>`
-          : `<button class="btn btn-danger-ghost btn-sm" onclick="confirmLeaveLeague('${league.id}', '${escHtml(league.name)}')">Leave League</button>`
-        }
-      </div>
     </div>
   `;
 }
+
+// Only one league card's dropdown open at a time -- opening one closes any
+// other, same pattern as the profile menu below.
+function toggleLeagueMenu(leagueId, event) {
+  event.stopPropagation();
+  const targetId = `league-menu-${leagueId}`;
+  document.querySelectorAll('.league-menu-dropdown').forEach(el => {
+    if (el.id !== targetId) el.style.display = 'none';
+  });
+  const menu = document.getElementById(targetId);
+  if (menu) menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+}
+
+function closeLeagueMenus() {
+  document.querySelectorAll('.league-menu-dropdown').forEach(el => el.style.display = 'none');
+}
+
+document.addEventListener('click', function(e) {
+  if (!e.target.closest('.league-menu-wrap')) closeLeagueMenus();
+});
 
 // ── CREATE LEAGUE ─────────────────────────────────────────────────────────────
 async function handleCreateLeague() {
@@ -1136,16 +1177,6 @@ function escHtml(str) {
   return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
-async function copyInviteCode(code, btn) {
-  try {
-    await navigator.clipboard.writeText(code);
-    btn.textContent = 'Copied!';
-    setTimeout(() => btn.textContent = 'Copy', 1800);
-  } catch(e) {
-    btn.textContent = 'Failed';
-  }
-}
-
 async function copyInviteLink(leagueId, btn) {
   // Find the invite code for this league
   const membership = userLeagues.find(m => m.league.id === leagueId);
@@ -1155,10 +1186,15 @@ async function copyInviteLink(leagueId, btn) {
     : `${window.location.origin}/league?id=${leagueId}`;
   try {
     await navigator.clipboard.writeText(url);
-    if (btn) {
-      const orig = btn.textContent;
-      btn.textContent = 'Copied!';
-      setTimeout(() => btn.textContent = orig, 1800);
+    // Swap just the label span's text, not the whole button's textContent --
+    // this button also has an icon <svg> as a sibling, and textContent on
+    // the button itself would silently delete it (replaced by a plain text
+    // node) when restored.
+    const label = btn?.querySelector('.league-menu-item-label') || btn;
+    if (label) {
+      const orig = label.textContent;
+      label.textContent = 'Copied!';
+      setTimeout(() => { label.textContent = orig; }, 1800);
     }
   } catch(e) {}
 }
