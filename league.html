@@ -796,7 +796,19 @@ function normTitleLoose(t){
 // the highest bo right now, recomputed on every render -- no separate
 // "current record holder" state to maintain; a new film simply takes over
 // the chart the moment its own total passes the previous leader's.
+// Custom chart rather than reusing LineChart: this needs to show the FULL
+// 24-week Star Wars 7 arc as a fixed backdrop even when the champion only
+// has a handful of real weeks so far (so you can see the whole shape of
+// the record it's chasing, not just the sliver of it lined up with today),
+// while the champion's own line has to stop dead at its last real data
+// point instead of crashing to zero like LineChart's shared-length series
+// would force it to. Also adds a per-week ahead/behind dot strip, which is
+// specific enough to this one comparison that it doesn't belong in the
+// generic chart either.
 function ChampionVsRecordChart({films,dailyBO}){
+  const svgRef=useRef(null);
+  const[hoverWeek,setHoverWeek]=useState(null);
+
   const champion=useMemo(()=>{
     const released=films.filter(f=>f.bo>0);
     return released.length?[...released].sort((a,b)=>b.bo-a.bo)[0]:null;
@@ -829,23 +841,85 @@ function ChampionVsRecordChart({films,dailyBO}){
     );
   }
 
-  const chartData=weekly.map(w=>({
-    week:`Wk ${w.week}`,
-    [champion.title]:w.value,
-    [SW7_TITLE]:sw7CumulativeAtWeek(w.week),
-  }));
-  const latest=weekly[weekly.length-1];
-  const sw7AtSameWeek=sw7CumulativeAtWeek(latest.week);
-  const ahead=latest.value>=sw7AtSameWeek;
-  const pctOfPace=(latest.value/sw7AtSameWeek)*100;
+  const champWeeks=weekly.length; // how many real weeks the champion has so far
+  const totalWeeks=Math.max(SW7_WEEKLY_CUMULATIVE.length,champWeeks); // full backdrop range -- extends past 24 if the champion has outlasted SW7's own run
+  const maxVal=Math.max(SW7_WEEKLY_CUMULATIVE[SW7_WEEKLY_CUMULATIVE.length-1],...weekly.map(w=>w.value));
+  const W=700,H=300,pL=70,pR=30,pT=20,pB=52;
+  const pW=W-pL-pR,pH=H-pT-pB;
+  const xStep=totalWeeks>1?pW/(totalWeeks-1):0;
+  const xFor=weekNum=>pL+(weekNum-1)*xStep;
+  const yFor=v=>pT+pH-(v/maxVal)*pH;
+
+  const sw7Path=Array.from({length:totalWeeks},(_,i)=>i+1).map((wk,i)=>`${i===0?"M":"L"}${xFor(wk)},${yFor(sw7CumulativeAtWeek(wk))}`).join(" ");
+  const champPath=weekly.map((w,i)=>`${i===0?"M":"L"}${xFor(w.week)},${yFor(w.value)}`).join(" ");
+
+  const activeWeek=hoverWeek??champWeeks;
+  const activeSW7=sw7CumulativeAtWeek(activeWeek);
+  const activeChampPoint=weekly.find(w=>w.week===activeWeek);
+  const activeChamp=activeChampPoint?activeChampPoint.value:null;
+  const delta=activeChamp!==null?activeChamp-activeSW7:null;
+  const deltaPct=activeChamp!==null?(activeChamp/activeSW7-1)*100:null;
+  const ahead=delta!==null&&delta>=0;
+
+  function handleMove(clientX){
+    if(!svgRef.current) return;
+    const rect=svgRef.current.getBoundingClientRect();
+    const mx=((clientX-rect.left)/rect.width)*W;
+    const wk=Math.round((mx-pL)/xStep)+1;
+    if(wk>=1&&wk<=totalWeeks) setHoverWeek(wk);
+  }
+
+  const maxLabels=8;
+  const labelStep=Math.max(1,Math.ceil(totalWeeks/maxLabels));
 
   return(
     <div style={{background:"#111119",border:"1px solid #222233",borderRadius:10,padding:"16px 14px"}}>
       <div style={{fontSize:12,fontWeight:700,color:"#a855f7",letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:4}}>Champion vs. The All-Time Record</div>
-      <div style={{fontSize:10,color:"#6a6a7e",marginBottom:12}}>{champion.title} — this league's current #1 — vs. {SW7_TITLE}, 2015's all-time domestic record holder ({fmt(SW7_WEEKLY_CUMULATIVE[SW7_WEEKLY_CUMULATIVE.length-1])} final). Lined up by week-since-release, not calendar date.</div>
-      <LineChart data={chartData} teams={[champion.title,SW7_TITLE]} colorMap={{[champion.title]:"#34d399",[SW7_TITLE]:"#a855f7"}} valueFormatter={fmt}/>
+      <div style={{fontSize:10,color:"#6a6a7e",marginBottom:12}}>{champion.title} — this league's current #1 — vs. {SW7_TITLE}'s full 24-week theatrical run, 2015's all-time domestic record ({fmt(SW7_WEEKLY_CUMULATIVE[SW7_WEEKLY_CUMULATIVE.length-1])} final). Lined up by week-since-release, not calendar date. Dots along the bottom mark each week {champion.title} tracked ahead (green) or behind (red).</div>
+
+      <div style={{background:"#1a1a28",borderRadius:8,padding:"10px 14px",marginBottom:10}}>
+        <div style={{fontWeight:700,color:"#d4a843",marginBottom:6,fontSize:12,display:"flex",justifyContent:"space-between"}}>
+          <span>Week {activeWeek}</span>
+          <span style={{color:"#4a4a5e",fontWeight:400,fontSize:10}}>hover chart to explore</span>
+        </div>
+        <div style={{display:"flex",gap:16,flexWrap:"wrap",fontSize:12}}>
+          <div style={{display:"flex",alignItems:"center",gap:6}}><div style={{width:8,height:8,borderRadius:"50%",background:"#a855f7"}}/><span style={{color:"#8a8a9e"}}>Star Wars 7</span><span style={{fontFamily:"monospace",color:"#a855f7",fontWeight:600}}>{fmt(activeSW7)}</span></div>
+          <div style={{display:"flex",alignItems:"center",gap:6}}><div style={{width:8,height:8,borderRadius:"50%",background:"#34d399"}}/><span style={{color:"#8a8a9e"}}>{champion.title}</span><span style={{fontFamily:"monospace",color:"#34d399",fontWeight:600}}>{activeChamp!==null?fmt(activeChamp):"no data yet"}</span></div>
+          {delta!==null&&<div style={{fontFamily:"monospace",fontWeight:700,color:ahead?"#34d399":"#f87171"}}>{ahead?"+":""}{fmt(delta)} ({deltaPct.toFixed(0)}%) {ahead?"ahead":"behind"}</div>}
+        </div>
+      </div>
+
+      <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} style={{width:"100%",cursor:"crosshair",display:"block"}}
+        onMouseMove={e=>handleMove(e.clientX)} onMouseLeave={()=>setHoverWeek(null)}
+        onTouchMove={e=>{e.preventDefault();handleMove(e.touches[0].clientX)}} onTouchEnd={()=>setHoverWeek(null)}>
+        {[0,.25,.5,.75,1].map(p=>{const y=pT+pH*(1-p);return(<g key={p}><line x1={pL} y1={y} x2={W-pR} y2={y} stroke="#1a1a28"/><text x={pL-6} y={y+4} fill="#4a4a5e" fontSize={9} textAnchor="end" fontFamily="monospace">{fmt(maxVal*p)}</text></g>);})}
+        {Array.from({length:totalWeeks},(_,i)=>i+1).map(wk=>{
+          const x=xFor(wk);const showLabel=(wk-1)%labelStep===0||wk===totalWeeks;
+          return(<g key={wk}>
+            <line x1={x} y1={H-pB} x2={x} y2={H-pB+4} stroke={wk===activeWeek?"#d4a843":"#3a3a4e"}/>
+            {showLabel&&<text x={x} y={H-pB+16} fill={wk===activeWeek?"#d4a843":"#4a4a5e"} fontSize={9} textAnchor="middle" fontFamily="monospace" fontWeight={wk===activeWeek?700:400}>Wk {wk}</text>}
+          </g>);
+        })}
+        <line x1={xFor(activeWeek)} y1={pT} x2={xFor(activeWeek)} y2={pT+pH} stroke="#d4a843" strokeWidth={1} strokeDasharray="4 3" opacity={0.4}/>
+        <path d={sw7Path} fill="none" stroke="#a855f7" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" opacity={0.8}/>
+        <path d={champPath} fill="none" stroke="#34d399" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" opacity={0.85}/>
+        {Array.from({length:totalWeeks},(_,i)=>i+1).map(wk=><circle key={wk} cx={xFor(wk)} cy={yFor(sw7CumulativeAtWeek(wk))} r={wk===activeWeek?4:2} fill="#a855f7" opacity={wk===activeWeek?1:0.5}/>)}
+        {weekly.map(w=><circle key={w.week} cx={xFor(w.week)} cy={yFor(w.value)} r={w.week===activeWeek?4:2} fill="#34d399" opacity={w.week===activeWeek?1:0.6}/>)}
+        {/* "now" marker on the champion's most recent real point */}
+        <circle cx={xFor(champWeeks)} cy={yFor(weekly[weekly.length-1].value)} r={7} fill="none" stroke="#34d399" strokeWidth={1.5}/>
+        {/* per-week ahead/behind dot strip */}
+        {weekly.map(w=>{
+          const isAhead=w.value>=sw7CumulativeAtWeek(w.week);
+          return<circle key={`ind-${w.week}`} cx={xFor(w.week)} cy={H-pB+28} r={2.5} fill={isAhead?"#34d399":"#f87171"} opacity={w.week===activeWeek?1:0.65}/>;
+        })}
+      </svg>
+      <div style={{display:"flex",gap:14,justifyContent:"center",marginTop:8,flexWrap:"wrap"}}>
+        <div style={{display:"flex",alignItems:"center",gap:4,fontSize:11,color:"#8a8a9e"}}><div style={{width:12,height:3,background:"#a855f7",borderRadius:2}}/>Star Wars 7 (full run)</div>
+        <div style={{display:"flex",alignItems:"center",gap:4,fontSize:11,color:"#8a8a9e"}}><div style={{width:12,height:3,background:"#34d399",borderRadius:2}}/>{champion.title} (to date)</div>
+      </div>
+
       <div style={{marginTop:10,padding:"10px 12px",borderRadius:6,background:ahead?"rgba(52,211,153,0.08)":"rgba(248,113,113,0.08)",border:`1px solid ${ahead?"rgba(52,211,153,0.25)":"rgba(248,113,113,0.25)"}`,fontSize:12,color:ahead?"#34d399":"#f87171"}}>
-        At week {latest.week}, {champion.title} is {ahead?"tracking ahead of":"tracking behind"} Star Wars 7's pace at the same point in its run ({pctOfPace.toFixed(0)}% of where it was).
+        As of week {champWeeks}, {champion.title} is {(weekly[weekly.length-1].value>=sw7CumulativeAtWeek(champWeeks))?"tracking ahead of":"tracking behind"} Star Wars 7's pace at the same point in its run ({((weekly[weekly.length-1].value/sw7CumulativeAtWeek(champWeeks))*100).toFixed(0)}% of where it was).
       </div>
     </div>
   );
