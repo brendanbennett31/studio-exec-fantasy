@@ -963,6 +963,7 @@ function WeeklyTotalBarChart({data,teams}){
   const barW=Math.min(pW/data.length*0.7,60);
   const gap=(pW-barW*data.length)/(data.length+1);
   const activeIdx=hoverIdx!==null?hoverIdx:data.length-1;
+  const activeSpan=data[activeIdx].weeksSpanned||1;
 
   const handleInteraction=useCallback((clientX)=>{
     if(!svgRef.current)return;
@@ -972,18 +973,30 @@ function WeeklyTotalBarChart({data,teams}){
     if(idx>=0&&idx<data.length)setHoverIdx(idx);
   },[data.length,barW,gap]);
 
+  // Same label-overlap fix as the LineChart above: every bar still gets a
+  // tick mark, but only a thinned, evenly-spaced subset (plus the last bar)
+  // gets a text label once a season's worth of weeks is on screen. A bar
+  // that spans more than one real week (see weeklyDeltas' weeksSpanned --
+  // a real gap exists in this league's snapshot history between Jul 27 and
+  // Aug 10, 2026) always gets its label shown and flagged, regardless of
+  // the thinning, so a genuine data gap is never the one label that gets
+  // silently hidden.
+  const maxLabels=8;
+  const labelStep=Math.max(1,Math.ceil(data.length/maxLabels));
+
   return(
     <div ref={containerRef}>
       <div style={{background:"#1a1a28",borderRadius:8,padding:"10px 14px",marginBottom:10}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:6}}>
           <div>
-            <span style={{fontWeight:700,color:"#d4a843",fontSize:12}}>{data[activeIdx].week}</span>
+            <span style={{fontWeight:700,color:"#d4a843",fontSize:12}}>{data[activeIdx].week}{activeSpan>1?` (spans ${activeSpan} weeks)`:""}</span>
             <span style={{fontFamily:"monospace",color:"#e8e8f0",fontWeight:700,fontSize:14,marginLeft:12}}>{fmt(totals[activeIdx])}</span>
           </div>
           {activeIdx>0&&<span style={{fontSize:11,fontFamily:"monospace",color:totals[activeIdx]>totals[activeIdx-1]?"#34d399":"#f87171"}}>
-            {totals[activeIdx]>totals[activeIdx-1]?"+":""}{ fmt(totals[activeIdx]-totals[activeIdx-1]) } vs prev week
+            {totals[activeIdx]>totals[activeIdx-1]?"+":""}{ fmt(totals[activeIdx]-totals[activeIdx-1]) } vs {activeSpan>1?`${activeSpan} weeks prior`:"prev week"}
           </span>}
         </div>
+        {activeSpan>1&&<div style={{fontSize:10,color:"#f59e0b",marginTop:4}}>No snapshot was taken in between — this bar's total is real, but it covers {activeSpan} weeks of growth, not one.</div>}
       </div>
       <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} style={{width:"100%",cursor:"crosshair",display:"block",overflow:"visible"}}
         onMouseMove={e=>handleInteraction(e.clientX)} onMouseLeave={()=>setHoverIdx(data.length-1)}
@@ -997,19 +1010,26 @@ function WeeklyTotalBarChart({data,teams}){
           </clipPath>
         </defs>
         <g clipPath="url(#barClip)">
-          {data.map((_,i)=>{
+          {data.map((d,i)=>{
             const x=pL+gap+(barW+gap)*i;
             const isActive=i===activeIdx;
+            const spanned=(d.weeksSpanned||1)>1;
             let cumH=0;
             return(<g key={i}>
               {teams.map(t=>{const tH=(data[i][t]||0)/maxT*pH;const tY=pT+pH-cumH-tH;cumH+=tH;return<rect key={t} x={x} y={tY} width={barW} height={Math.max(tH,0)} rx={2} fill={EXEC_COLORS[t]} opacity={isActive?0.8:0.4}/>})}
+              {spanned&&<rect x={x} y={pT+pH-cumH} width={barW} height={cumH} rx={2} fill="none" stroke="#f59e0b" strokeWidth={1.2} strokeDasharray="3 2" opacity={isActive?0.9:0.5}/>}
             </g>);
           })}
         </g>
-        {data.map((_,i)=>{
-          const x=pL+gap+(barW+gap)*i;
+        {data.map((d,i)=>{
+          const x=pL+gap+(barW+gap)*i+barW/2;
           const isActive=i===activeIdx;
-          return(<text key={i} x={x+barW/2} y={H-8} fill={isActive?"#d4a843":"#4a4a5e"} fontSize={9} textAnchor="middle" fontFamily="monospace" fontWeight={isActive?700:400}>{data[i].week}</text>);
+          const spanned=(d.weeksSpanned||1)>1;
+          const showLabel=spanned||i%labelStep===0||i===data.length-1;
+          return(<g key={i}>
+            <line x1={x} y1={H-pB} x2={x} y2={H-pB+4} stroke={spanned?"#f59e0b":isActive?"#d4a843":"#3a3a4e"}/>
+            {showLabel&&<text x={x} y={H-8} fill={spanned?"#f59e0b":isActive?"#d4a843":"#4a4a5e"} fontSize={9} textAnchor="middle" fontFamily="monospace" fontWeight={isActive||spanned?700:400}>{d.week}{spanned?` ×${d.weeksSpanned}`:""}</text>}
+          </g>);
         })}
       </svg>
     </div>
@@ -1390,7 +1410,7 @@ function App(){
         if(rows.length>0){
           const byWeek={};
           rows.forEach(r=>{
-            if(!byWeek[r.week_label]) byWeek[r.week_label]={week:r.week_label};
+            if(!byWeek[r.week_label]) byWeek[r.week_label]={week:r.week_label,snapshotDate:r.snapshot_date};
             byWeek[r.week_label][r.team]=Number(r.bo);
           });
           const parsed=Object.values(byWeek);
@@ -3070,6 +3090,14 @@ function TrendsTab({films,data,studioNames,weeklyBO,weeklyPOI,leagueCtx}){
     const prev=i>0?weeklyBO[i-1]:{};
     const delta={week:w.week};
     teams.forEach(t=>{delta[t]=Math.max(0,(w[t]||0)-(prev[t]||0))});
+    // Snapshots are meant to land every 7 days, but a real gap in when the
+    // snapshot cron actually ran (confirmed: one exists between Jul 27 and
+    // Aug 10, 2026) means a "weekly" delta can silently span more than one
+    // real week -- flagged here so the bar chart can show it honestly
+    // instead of an unexplained-looking spike.
+    delta.weeksSpanned=(i>0&&w.snapshotDate&&weeklyBO[i-1].snapshotDate)
+      ? Math.max(1,Math.round((new Date(w.snapshotDate)-new Date(weeklyBO[i-1].snapshotDate))/86400000/7))
+      : 1;
     return delta;
   });
 
