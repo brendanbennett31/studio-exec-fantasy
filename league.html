@@ -784,9 +784,6 @@ function sw7CumulativeAtWeek(week){
   const idx=Math.min(Math.max(week,1),SW7_WEEKLY_CUMULATIVE.length)-1;
   return SW7_WEEKLY_CUMULATIVE[idx];
 }
-function normTitleLoose(t){
-  return (t||"").toLowerCase().replace(/^(the |a |an )/,"").replace(/[^a-z0-9]+/g," ").trim();
-}
 
 // Tracks whichever film currently has the highest domestic total in this
 // league against the same week-by-week trajectory Star Wars 7 had at that
@@ -805,30 +802,59 @@ function normTitleLoose(t){
 // would force it to. Also adds a per-week ahead/behind dot strip, which is
 // specific enough to this one comparison that it doesn't belong in the
 // generic chart either.
-function ChampionVsRecordChart({films,dailyBO}){
+function ChampionVsRecordChart({films}){
   const svgRef=useRef(null);
   const[hoverWeek,setHoverWeek]=useState(null);
+  const[weekly,setWeekly]=useState([]);
+  const[loadingWeekly,setLoadingWeekly]=useState(true);
 
   const champion=useMemo(()=>{
     const released=films.filter(f=>f.bo>0);
     return released.length?[...released].sort((a,b)=>b.bo-a.bo)[0]:null;
   },[films]);
 
-  const weekly=useMemo(()=>{
-    if(!champion) return [];
-    const norm=normTitleLoose(champion.title);
-    const rows=dailyBO.filter(d=>d.film===champion.title||normTitleLoose(d.film)===norm).sort((a,b)=>a.dayNum-b.dayNum);
-    if(!rows.length) return [];
-    const byWeek={};
-    rows.forEach(r=>{byWeek[Math.ceil(r.dayNum/7)]=r.cumulative;});
-    return Object.keys(byWeek).map(Number).sort((a,b)=>a-b).map(wk=>({week:wk,value:byWeek[wk]}));
-  },[champion,dailyBO]);
+  // Scoped to just the current champion's own title, fetched fresh here
+  // rather than passed down from a bulk app-level load -- daily_bo grew
+  // past Supabase/PostgREST's default 1000-row response cap once every
+  // film started getting real daily tracking (previously invisible, since
+  // total rows stayed well under that). A bulk fetch ordered by date
+  // ascending was silently getting truncated at row 1000, dropping the
+  // TAIL of the data -- i.e. exactly the most recent films, which is
+  // exactly what made Spider-Man's data disappear. A single film's daily
+  // rows will never realistically approach that cap.
+  useEffect(()=>{
+    if(!champion){ setWeekly([]); setLoadingWeekly(false); return; }
+    let cancelled=false;
+    setLoadingWeekly(true);
+    supabaseFetch("daily_bo", `league_id=eq.${LEAGUE_ID}&film_title=eq.${encodeURIComponent(champion.title)}&order=bo_date.asc`)
+      .then(rows=>{
+        if(cancelled) return;
+        let cum=0;
+        const byWeek={};
+        (rows||[]).forEach((r,i)=>{
+          cum+=Number(r.daily_gross);
+          byWeek[Math.ceil((i+1)/7)]=cum;
+        });
+        setWeekly(Object.keys(byWeek).map(Number).sort((a,b)=>a-b).map(wk=>({week:wk,value:byWeek[wk]})));
+      })
+      .catch(e=>{ console.warn("[trends] champion daily_bo fetch failed:", e.message); if(!cancelled) setWeekly([]); })
+      .finally(()=>{ if(!cancelled) setLoadingWeekly(false); });
+    return ()=>{cancelled=true;};
+  },[champion?.title]);
 
   if(!champion){
     return(
       <div style={{background:"#111119",border:"1px solid #222233",borderRadius:10,padding:"16px 14px"}}>
         <div style={{fontSize:12,fontWeight:700,color:"#a855f7",letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:4}}>Champion vs. The All-Time Record</div>
         <div style={{fontSize:12,color:"#6a6a7e"}}>No released films yet.</div>
+      </div>
+    );
+  }
+  if(loadingWeekly){
+    return(
+      <div style={{background:"#111119",border:"1px solid #222233",borderRadius:10,padding:"16px 14px"}}>
+        <div style={{fontSize:12,fontWeight:700,color:"#a855f7",letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:4}}>Champion vs. The All-Time Record</div>
+        <div style={{fontSize:12,color:"#6a6a7e"}}>Loading {champion.title}'s tracking data…</div>
       </div>
     );
   }
@@ -1153,7 +1179,6 @@ function App(){
   const[expandedExecs,setExpandedExecs]=useState(new Set());
   const[weeklyBO,setWeeklyBO]=useState(FALLBACK_WEEKLY_BO);
   const[weeklyPOI,setWeeklyPOI]=useState(FALLBACK_WEEKLY_POI);
-  const[dailyBO,setDailyBO]=useState([]);
   const[membership,setMembership]=useState(null);
   const[leagueCtx,setLeagueCtx]=useState(null);
   const[leagueMembers,setLeagueMembers]=useState([]);
@@ -1387,26 +1412,15 @@ function App(){
         }
       }catch(e){ console.warn("[supabase] weekly_poi error:", e.message); }
 
-      // ── 4. Daily BO — from Supabase ──────────────────────────────────────
-      try{
-        const rows = await supabaseFetch("daily_bo", `league_id=eq.${LEAGUE_ID}&order=bo_date.asc`);
-        if(rows.length>0){
-          const byFilm={};
-          rows.forEach(r=>{
-            if(!byFilm[r.film_title]) byFilm[r.film_title]=[];
-            byFilm[r.film_title].push(r);
-          });
-          const parsed=[];
-          Object.entries(byFilm).forEach(([film,days])=>{
-            let cum=0;
-            days.forEach((r,i)=>{
-              cum+=Number(r.daily_gross);
-              parsed.push({film,date:r.bo_date,dow:"",dayNum:i+1,daily:Number(r.daily_gross),cumulative:cum,theaters:0});
-            });
-          });
-          if(parsed.length>0) setDailyBO(parsed);
-        }
-      }catch(e){ console.warn("[supabase] daily_bo error:", e.message); }
+      // Daily BO used to be fetched here in bulk for every film -- moved
+      // into ChampionVsRecordChart itself, scoped to just the current
+      // champion's title, once daily_bo grew past Supabase/PostgREST's
+      // default 1000-row response cap (confirmed: an unbounded fetch here
+      // was silently getting truncated at row 1000, ordered by bo_date
+      // ascending -- so it dropped the TAIL of the data, i.e. exactly the
+      // most recent films, which is exactly what happened to Spider-Man).
+      // A single film's daily rows will never realistically approach that
+      // cap, and this is the only place daily_bo data is used at all.
     }
     loadData();
   },[]);
@@ -1645,7 +1659,7 @@ function App(){
         </div>
         {tab==="standings"&&<div key="standings" style={{animation:"fadeSlideUp 0.4s ease-out both"}}><StandingsTab data={data} studioNames={studioNames} expandedExecs={expandedExecs} setExpandedExecs={setExpandedExecs} liveStatus={liveStatus} myTeam={myTeam}/></div>}
         {tab==="timeline"&&<div key="timeline" style={{animation:"fadeSlideUp 0.4s ease-out both"}}><CalendarView films={films} studioNames={studioNames}/></div>}
-        {tab==="trends"&&<TrendsTab films={films} data={data} studioNames={studioNames} weeklyBO={weeklyBO} weeklyPOI={weeklyPOI} dailyBO={dailyBO} leagueCtx={leagueCtx}/>}
+        {tab==="trends"&&<TrendsTab films={films} data={data} studioNames={studioNames} weeklyBO={weeklyBO} weeklyPOI={weeklyPOI} leagueCtx={leagueCtx}/>}
         {tab==="purchase"&&<div key="purchase" style={{animation:"fadeSlideUp 0.4s ease-out both"}}><PurchasePriceTab films={films} data={data} studioNames={studioNames}/></div>}
         {tab==="awards"&&<div key="awards" style={{animation:"fadeSlideUp 0.4s ease-out both"}}><AwardsTab films={films} leagueCtx={leagueCtx}/></div>}
         {tab==="acquisitions"&&!IS_LEGACY&&leagueCtx?.acquisitions_enabled&&<div key="acquisitions" style={{animation:"fadeSlideUp 0.4s ease-out both"}}><AcquisitionsTab leagueContext={leagueCtx} members={leagueMembers} userMembership={membership}/></div>}
@@ -3030,7 +3044,7 @@ function HeatmapGrid({heatmap,monthOrder,heatLabels,teams}){
 }
 
 // ─── TRENDS ──────────────────
-function TrendsTab({films,data,studioNames,weeklyBO,weeklyPOI,dailyBO,leagueCtx}){
+function TrendsTab({films,data,studioNames,weeklyBO,weeklyPOI,leagueCtx}){
   const teams=Object.keys(EXEC_COLORS);
   // roi here is framed as gain/loss vs. break-even (100% of cost recouped =
   // 0%) -- Biggest Bombs wants that framing, so a bomb reads as a clearly
@@ -3085,7 +3099,7 @@ function TrendsTab({films,data,studioNames,weeklyBO,weeklyPOI,dailyBO,leagueCtx}
     </div>
 
     {/* Champion vs. The All-Time Record */}
-    <div style={{...anim(2)}}><ChampionVsRecordChart films={films} dailyBO={dailyBO}/></div>
+    <div style={{...anim(2)}}><ChampionVsRecordChart films={films}/></div>
 
     {/* Top Performers */}
     <div style={{background:"#111119",border:"1px solid #222233",borderRadius:10,padding:"16px 14px",...anim(3)}}>
