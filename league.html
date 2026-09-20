@@ -3066,6 +3066,33 @@ function HeatmapGrid({heatmap,monthOrder,heatLabels,teams}){
 // ─── TRENDS ──────────────────
 function TrendsTab({films,data,studioNames,weeklyBO,weeklyPOI,leagueCtx}){
   const teams=Object.keys(EXEC_COLORS);
+  // True calendar-week box office per team, from daily_bo via the
+  // weekly_box_office_by_team() RPC (migration 052). Preferred over
+  // differencing weekly snapshots, which were captured at inconsistent
+  // points in their weeks and put Spider-Man's opening week in the wrong
+  // bars. null = not loaded yet or unavailable (legacy mode, RPC not run
+  // yet, or no daily data) -- falls back to the snapshot deltas below.
+  const[dailyWeekly,setDailyWeekly]=useState(null);
+  useEffect(()=>{
+    if(IS_LEGACY||!LEAGUE_UUID) return;
+    let cancelled=false;
+    const session=getSession();
+    fetch(`${SUPABASE_URL}/rest/v1/rpc/weekly_box_office_by_team`,{
+      method:"POST",
+      headers:{"apikey":SUPABASE_ANON_KEY,"Authorization":`Bearer ${session?.access_token||SUPABASE_ANON_KEY}`,"Content-Type":"application/json"},
+      body:JSON.stringify({p_league_id:LEAGUE_UUID})
+    }).then(r=>r.ok?r.json():null).then(rows=>{
+      if(cancelled||!Array.isArray(rows)||!rows.length) return;
+      const mn=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+      const byWeek={};
+      rows.forEach(r=>{
+        if(!byWeek[r.week_start]){const p=r.week_start.split("-");byWeek[r.week_start]={week:`${mn[parseInt(p[1])-1]} ${parseInt(p[2])}`,weeksSpanned:1};}
+        byWeek[r.week_start][r.team_name]=Number(r.amount);
+      });
+      setDailyWeekly(Object.keys(byWeek).sort().map(k=>byWeek[k]));
+    }).catch(()=>{});
+    return()=>{cancelled=true;};
+  },[]);
   // roi here is framed as gain/loss vs. break-even (100% of cost recouped =
   // 0%) -- Biggest Bombs wants that framing, so a bomb reads as a clearly
   // negative number. Top Performers wants the raw return multiple instead
@@ -3123,7 +3150,7 @@ function TrendsTab({films,data,studioNames,weeklyBO,weeklyPOI,leagueCtx}){
     {/* Total Weekly BO Bar Chart */}
     <div style={{background:"#111119",border:"1px solid #222233",borderRadius:10,padding:"16px 14px",...anim(2)}}>
       <div style={{fontSize:12,fontWeight:700,color:"#6a6a7e",letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:12}}>New Weekly Box Office (All Execs)</div>
-      <WeeklyTotalBarChart data={weeklyDeltas} teams={teams}/>
+      <WeeklyTotalBarChart data={dailyWeekly||weeklyDeltas} teams={teams}/>
     </div>
 
     {/* Champion vs. The All-Time Record */}
