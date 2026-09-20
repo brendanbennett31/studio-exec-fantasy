@@ -1131,9 +1131,9 @@ function PurchasePriceTab({films,data,studioNames}){
                     ? <a href={bomUrl(f.title)} target="_blank" rel="noopener noreferrer" style={{fontWeight:600,fontSize:13,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"block",color:f.voided?"#ef4444":f.locked?"#6a6a7e":"#e8e8f0",textDecoration:f.voided?"line-through":"none"}}
                         onMouseEnter={e=>e.currentTarget.style.color="#d4a843"}
                         onMouseLeave={e=>e.currentTarget.style.color=f.voided?"#ef4444":f.locked?"#6a6a7e":"#e8e8f0"}>
-                        {f.locked&&<span style={{marginRight:4,display:"inline-flex",alignItems:"center"}}><svg width="10" height="10" viewBox="0 0 12 12" fill="none"><rect x="2" y="5.5" width="8" height="5.5" rx="1" stroke="#6a6a7e" strokeWidth="1.2"/><path d="M4 5.5V4a2 2 0 0 1 4 0v1.5" stroke="#6a6a7e" strokeWidth="1.2" strokeLinecap="round"/></svg></span>}{f.title} <span style={{fontSize:9,opacity:0.4}}>↗</span>
+                        {f.locked&&<span style={{marginRight:4,display:"inline-flex",alignItems:"center"}}><svg width="10" height="10" viewBox="0 0 12 12" fill="none"><rect x="2" y="5.5" width="8" height="5.5" rx="1" stroke="#6a6a7e" strokeWidth="1.2"/><path d="M4 5.5V4a2 2 0 0 1 4 0v1.5" stroke="#6a6a7e" strokeWidth="1.2" strokeLinecap="round"/></svg></span>}{f.title}{f.awardLabel&&<span style={{marginLeft:5,fontSize:10,fontWeight:500,color:"#a07c2e"}}>({f.awardLabel})</span>} <span style={{fontSize:9,opacity:0.4}}>↗</span>
                       </a>
-                    : <div style={{fontWeight:600,fontSize:13,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",color:f.voided?"#ef4444":f.locked?"#6a6a7e":"#e8e8f0",textDecoration:f.voided?"line-through":"none"}}>{f.locked&&<span style={{marginRight:4,display:'inline-flex',alignItems:'center'}}><svg width="12" height="12" viewBox="0 0 12 12" fill="none"><rect x="2" y="5.5" width="8" height="5.5" rx="1" stroke="currentColor" strokeWidth="1.2"/><path d="M4 5.5V4a2 2 0 0 1 4 0v1.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/></svg></span>}{f.title}</div>
+                    : <div style={{fontWeight:600,fontSize:13,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",color:f.voided?"#ef4444":f.locked?"#6a6a7e":"#e8e8f0",textDecoration:f.voided?"line-through":"none"}}>{f.locked&&<span style={{marginRight:4,display:'inline-flex',alignItems:'center'}}><svg width="12" height="12" viewBox="0 0 12 12" fill="none"><rect x="2" y="5.5" width="8" height="5.5" rx="1" stroke="currentColor" strokeWidth="1.2"/><path d="M4 5.5V4a2 2 0 0 1 4 0v1.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/></svg></span>}{f.title}{f.awardLabel&&<span style={{marginLeft:5,fontSize:10,fontWeight:500,color:"#a07c2e"}}>({f.awardLabel})</span>}</div>
                   }
                 </ReleaseDayBadge>
                 <div style={{marginTop:2,display:"flex",gap:4}}>
@@ -1305,6 +1305,7 @@ function App(){
               return {
                 id:       r.id, // the league_picks row id -- needed for refund_my_film()
                 title:    uf?.title || r.title,
+                awardLabel: r.imdb_id ? (r.award_label||null) : null, // festival award this pick was resolved from, if any
                 bid:      Number(r.bid),
                 bo:       Number(uf?.bo || 0),
                 team:     r.team_name,
@@ -2442,9 +2443,9 @@ function SlateDrawer({exec,studioNames,myTeam}){
                   ? <a href={bomUrl(f.title)} target="_blank" rel="noopener noreferrer" style={{fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"block",color:f.voided?"#ef4444":f.locked?"#6a6a7e":"inherit",textDecoration:f.voided?"line-through":"none"}}
                       onMouseEnter={e=>e.currentTarget.style.color="#d4a843"}
                       onMouseLeave={e=>e.currentTarget.style.color=f.voided?"#ef4444":f.locked?"#6a6a7e":"inherit"}>
-                      {f.locked&&<span style={{marginRight:4,display:"inline-flex",alignItems:"center"}}><svg width="10" height="10" viewBox="0 0 12 12" fill="none"><rect x="2" y="5.5" width="8" height="5.5" rx="1" stroke="#6a6a7e" strokeWidth="1.2"/><path d="M4 5.5V4a2 2 0 0 1 4 0v1.5" stroke="#6a6a7e" strokeWidth="1.2" strokeLinecap="round"/></svg></span>}{f.title} <span style={{fontSize:9,opacity:0.4,letterSpacing:0}}>↗</span>
+                      {f.locked&&<span style={{marginRight:4,display:"inline-flex",alignItems:"center"}}><svg width="10" height="10" viewBox="0 0 12 12" fill="none"><rect x="2" y="5.5" width="8" height="5.5" rx="1" stroke="#6a6a7e" strokeWidth="1.2"/><path d="M4 5.5V4a2 2 0 0 1 4 0v1.5" stroke="#6a6a7e" strokeWidth="1.2" strokeLinecap="round"/></svg></span>}{f.title}{f.awardLabel&&<span style={{marginLeft:5,fontSize:10,fontWeight:500,color:"#a07c2e"}}>({f.awardLabel})</span>} <span style={{fontSize:9,opacity:0.4,letterSpacing:0}}>↗</span>
                     </a>
-                  : <span style={{fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"block",color:f.voided?"#ef4444":f.locked?"#6a6a7e":"inherit",textDecoration:f.voided?"line-through":"none"}}>{f.locked&&<span style={{marginRight:4,display:'inline-flex',alignItems:'center'}}><svg width="12" height="12" viewBox="0 0 12 12" fill="none"><rect x="2" y="5.5" width="8" height="5.5" rx="1" stroke="currentColor" strokeWidth="1.2"/><path d="M4 5.5V4a2 2 0 0 1 4 0v1.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/></svg></span>}{f.title}</span>
+                  : <span style={{fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"block",color:f.voided?"#ef4444":f.locked?"#6a6a7e":"inherit",textDecoration:f.voided?"line-through":"none"}}>{f.locked&&<span style={{marginRight:4,display:'inline-flex',alignItems:'center'}}><svg width="12" height="12" viewBox="0 0 12 12" fill="none"><rect x="2" y="5.5" width="8" height="5.5" rx="1" stroke="currentColor" strokeWidth="1.2"/><path d="M4 5.5V4a2 2 0 0 1 4 0v1.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/></svg></span>}{f.title}{f.awardLabel&&<span style={{marginLeft:5,fontSize:10,fontWeight:500,color:"#a07c2e"}}>({f.awardLabel})</span>}</span>
                 }
               </ReleaseDayBadge>
               <span style={{display:"inline-flex",gap:4,marginTop:2}}>
@@ -5165,7 +5166,7 @@ function ManageTab({leagueContext, members, userMembership, draftSession, refres
     const res=await fetch(`${SUPABASE_URL}/rest/v1/league_picks?id=eq.${pickId}`,{
       method:'PATCH',
       headers:{'apikey':SUPABASE_ANON_KEY,'Authorization':`Bearer ${session?.access_token||SUPABASE_ANON_KEY}`,'Content-Type':'application/json','Prefer':'return=minimal'},
-      body:JSON.stringify({imdb_id:resolveSelectedFilm.imdb_id, title:null, release_date:null})
+      body:JSON.stringify({imdb_id:resolveSelectedFilm.imdb_id, award_label:(picksList.find(p=>p.id===pickId)?.title)||null, title:null, release_date:null})
     });
     setResolveSaving(false);
     if(res.ok){
