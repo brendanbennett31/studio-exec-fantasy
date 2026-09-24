@@ -956,13 +956,18 @@ function WeeklyTotalBarChart({data,teams}){
   const svgRef=useRef(null);
   const[hoverIdx,setHoverIdx]=useState(data.length-1);
   const[containerRef,inView]=useInView(0.2);
+  // Guards against data ever being empty (or hoverIdx pointing past the end
+  // after the daily_bo-derived series swaps in with a different length than
+  // whatever weeklyDeltas had at mount) -- data[activeIdx] used to be read
+  // unconditionally below, which would throw and blank out this whole chart.
+  if(!data.length) return <div style={{fontSize:12,color:"#6a6a7e"}}>No weekly data yet.</div>;
   const totals=data.map(w=>{let s=0;teams.forEach(t=>s+=(w[t]||0));return s});
   const maxT=Math.max(1,...totals);
   const W=700,H=250,pL=70,pR=30,pT=20,pB=45;
   const pW=W-pL-pR,pH=H-pT-pB;
   const barW=Math.min(pW/data.length*0.7,60);
   const gap=(pW-barW*data.length)/(data.length+1);
-  const activeIdx=hoverIdx!==null?hoverIdx:data.length-1;
+  const activeIdx=Math.min(hoverIdx!==null?hoverIdx:data.length-1,data.length-1);
   const activeSpan=data[activeIdx].weeksSpanned||1;
 
   const handleInteraction=useCallback((clientX)=>{
