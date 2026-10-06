@@ -4709,7 +4709,6 @@ function WeekendPicksTab({leagueContext,userMembership}){
             {["#1 — Top box office","#2","#3"].map((label,i)=>(
               <WeekendFilmPicker key={i} label={label} value={null} pool={[]} takenIds={[]} disabled={true} placeholder="Not open yet"/>
             ))}
-            <div style={{fontSize:11,color:"#6a6a7e"}}>Picks open in {countdown(opensNextMs)}.</div>
           </div>
           {phase==="resolved"&&(
             <div style={card}>
