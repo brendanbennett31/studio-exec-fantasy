@@ -1383,6 +1383,7 @@ function App(){
                       budgetDefault: Number(r.budget_default),
                       remainderCredit: Number(r.remainder_credit),
                       refundCredits: Number(r.refund_credits),
+                      weekendPickCredits: Number(r.weekend_pick_credits||0),
                       spent: Number(r.spent),
                     };
                   });
@@ -1523,6 +1524,8 @@ function App(){
   // Only shown once the draft is actually underway (or finished) -- while
   // it's still in 'setup', the turn-order/timer config lives in ManageTab
   // instead, since there's nothing live to watch yet.
+  // Opt-in per league (leagues.weekend_picks_enabled, default false).
+  const weekendTab = (!IS_LEGACY&&leagueCtx?.weekend_picks_enabled) ? [{id:"weekend",label:"Weekend Picks"}] : [];
   const draftTab = (!IS_LEGACY&&leagueCtx?.draft_mode==="live"&&draftSession&&draftSession.status!=="setup") ? [{id:"draft",label:"Draft Room"}] : [];
   // A brand-new league with zero picks and no draft_mode chosen yet shows a
   // full-screen "how do you want to build this slate?" choice instead of
@@ -1530,8 +1533,8 @@ function App(){
   // lands (films.length>0, from either path) or draft_mode gets set.
   const needsDraftModeChoice = !IS_LEGACY && !PUBLIC_VIEW_MODE && !!leagueCtx && films.length===0 && leagueCtx.draft_mode===null && liveStatus!=="loading";
   const tabList=endgameActive
-    ?[{id:"standings",label:"Standings"},{id:"awards",label:"Awards"},{id:"timeline",label:"Calendar"},{id:"purchase",label:"By Price"},{id:"trends",label:"Trends"},...acqTab,...draftTab,{id:"rules",label:"Rules"},...(isAdmin&&!IS_LEGACY?[{id:"manage",label:"Manage",admin:true}]:[])]
-    :[{id:"standings",label:"Standings"},{id:"timeline",label:"Calendar"},{id:"purchase",label:"By Price"},{id:"trends",label:"Trends"},{id:"awards",label:"Awards"},...acqTab,...draftTab,{id:"rules",label:"Rules"},...(isAdmin&&!IS_LEGACY?[{id:"manage",label:"Manage",admin:true}]:[])];
+    ?[{id:"standings",label:"Standings"},{id:"awards",label:"Awards"},{id:"timeline",label:"Calendar"},{id:"purchase",label:"By Price"},{id:"trends",label:"Trends"},...acqTab,...weekendTab,...draftTab,{id:"rules",label:"Rules"},...(isAdmin&&!IS_LEGACY?[{id:"manage",label:"Manage",admin:true}]:[])]
+    :[{id:"standings",label:"Standings"},{id:"timeline",label:"Calendar"},{id:"purchase",label:"By Price"},{id:"trends",label:"Trends"},{id:"awards",label:"Awards"},...acqTab,...weekendTab,...draftTab,{id:"rules",label:"Rules"},...(isAdmin&&!IS_LEGACY?[{id:"manage",label:"Manage",admin:true}]:[])];
 
   // Theme palette swaps based on endgame
   const theme=endgameActive?{
@@ -1688,6 +1691,7 @@ function App(){
         {tab==="trends"&&<TrendsTab films={films} data={data} studioNames={studioNames} weeklyBO={weeklyBO} weeklyPOI={weeklyPOI} leagueCtx={leagueCtx}/>}
         {tab==="purchase"&&<div key="purchase" style={{animation:"fadeSlideUp 0.4s ease-out both"}}><PurchasePriceTab films={films} data={data} studioNames={studioNames}/></div>}
         {tab==="awards"&&<div key="awards" style={{animation:"fadeSlideUp 0.4s ease-out both"}}><AwardsTab films={films} leagueCtx={leagueCtx}/></div>}
+        {tab==="weekend"&&!IS_LEGACY&&leagueCtx?.weekend_picks_enabled&&<div key="weekend" style={{animation:"fadeSlideUp 0.4s ease-out both"}}><WeekendPicksTab leagueContext={leagueCtx} userMembership={membership}/></div>}
         {tab==="acquisitions"&&!IS_LEGACY&&leagueCtx?.acquisitions_enabled&&<div key="acquisitions" style={{animation:"fadeSlideUp 0.4s ease-out both"}}><AcquisitionsTab leagueContext={leagueCtx} members={leagueMembers} userMembership={membership}/></div>}
         {tab==="draft"&&!IS_LEGACY&&draftTab.length>0&&<div key="draft" style={{animation:"fadeSlideUp 0.4s ease-out both"}}><DraftRoomTab leagueContext={leagueCtx} members={leagueMembers} userMembership={membership} films={films} draftSession={draftSession} setDraftSession={setDraftSession}/></div>}
         {tab==="rules"&&<div key="rules" style={{animation:"fadeSlideUp 0.4s ease-out both"}}><Rules leagueCtx={leagueCtx}/></div>}
@@ -2496,7 +2500,7 @@ function SlateDrawer({exec,studioNames,myTeam}){
         </div>
       ))}
       {rem&&rem.remaining>0&&(<div style={{display:"grid",gridTemplateColumns:gridCols,gap:4,padding:"7px 14px",fontSize:12,borderTop:"1px solid #1a1a28"}}>
-        <div style={{color:"#6a6a7e",fontStyle:"italic"}} title={LEAGUE_CONTEXT?.acquisitions_enabled&&rem.remainderCredit!=null?`$${rem.budgetDefault}M base + $${rem.remainderCredit}M converted from draft leftover${rem.refundCredits?` + $${rem.refundCredits}M from refunds`:""} − $${rem.spent}M spent`:undefined}>
+        <div style={{color:"#6a6a7e",fontStyle:"italic"}} title={LEAGUE_CONTEXT?.acquisitions_enabled&&rem.remainderCredit!=null?`$${rem.budgetDefault}M base + $${rem.remainderCredit}M converted from draft leftover${rem.refundCredits?` + $${rem.refundCredits}M from refunds`:""}${rem.weekendPickCredits?` + $${rem.weekendPickCredits}M from Weekend Picks wins`:""} − $${rem.spent}M spent`:undefined}>
           {LEAGUE_CONTEXT?.acquisitions_enabled?"Acquisitions Budget":"Unspent Budget"}
         </div>
         <div style={{fontFamily:"monospace",fontSize:11,color:"#6a6a7e",textAlign:"right"}}>${rem.remaining}M</div><div/><div style={{fontFamily:"monospace",fontSize:11,color:"#3a3a4e",textAlign:"right"}}>—</div>{isMine&&<div/>}
@@ -4390,6 +4394,280 @@ function AcquisitionsTab({leagueContext,members,userMembership}){
             </div>
           ))}
           {weekBids.length===0&&<div style={{fontSize:12,color:"#6a6a7e"}}>No bids yet this week.</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── WEEKEND PICKS (playtest) ─────────────────────────────────────────────
+// Predict the top 3 domestic box office films of the coming weekend, in
+// order. Window opens Tue 9pm PT, locks Wed 9pm PT (all enforced by the
+// weekend_* RPCs -- this component only renders what weekend_picks_state()
+// returns and calls submit_weekend_picks()). Opt-in per league via
+// leagues.weekend_picks_enabled.
+function WeekendFilmPicker({label,value,onChange,pool,takenIds,disabled}){
+  const[q,setQ]=useState("");
+  const[focus,setFocus]=useState(false);
+  function norm(t){return (t||"").toLowerCase().replace(/^(the |a |an )/,"").replace(/[^a-z0-9]+/g," ").trim();}
+  const matches=useMemo(()=>{
+    const n=norm(q);
+    return pool.filter(f=>!takenIds.includes(f.imdb_id)&&(!n||norm(f.title).includes(n))).slice(0,40);
+  },[q,pool,takenIds]);
+  return(
+    <div style={{position:"relative",marginBottom:12}}>
+      <div style={{fontSize:11,fontWeight:700,color:"#d4a843",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>{label}</div>
+      {value?(
+        <div style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",borderRadius:7,border:"1px solid rgba(52,211,153,0.3)",background:"rgba(52,211,153,0.05)"}}>
+          <div style={{flex:1,fontSize:13,color:"#e8e8f0"}}>{value.title}</div>
+          {!disabled&&<button onClick={()=>{onChange(null);setQ("");}} style={{background:"none",border:"none",color:"#6a6a7e",cursor:"pointer",fontSize:12}}>Change</button>}
+        </div>
+      ):(
+        <>
+          <input value={q} disabled={disabled} onChange={e=>setQ(e.target.value)} onFocus={()=>setFocus(true)} onBlur={()=>setTimeout(()=>setFocus(false),150)}
+            placeholder="Search unreleased films…"
+            style={{width:"100%",padding:"9px 12px",borderRadius:7,border:"1px solid #2a2a3a",background:"#0e0e16",color:"#e8e8f0",fontSize:13,boxSizing:"border-box"}}/>
+          {focus&&(
+            <div style={{position:"absolute",left:0,right:0,zIndex:20,maxHeight:200,overflowY:"auto",background:"#0e0e16",border:"1px solid #2a2a3a",borderRadius:7,marginTop:2}}>
+              {matches.map(f=>(
+                <div key={f.imdb_id} onMouseDown={e=>{e.preventDefault();onChange(f);setQ("");}} style={{padding:"8px 12px",fontSize:13,cursor:"pointer",color:"#e8e8f0",borderBottom:"1px solid #1a1a28",display:"flex",justifyContent:"space-between",gap:10}}
+                  onMouseEnter={e=>e.currentTarget.style.background="#1a1a28"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                  <span>{f.title}</span><span style={{color:"#6a6a7e",fontSize:11,fontFamily:"monospace"}}>{f.release_date}</span>
+                </div>
+              ))}
+              {matches.length===0&&<div style={{padding:"10px 12px",fontSize:12,color:"#6a6a7e"}}>No eligible films match.</div>}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function WeekendPicksTab({leagueContext,userMembership}){
+  const isAdmin=userMembership?.role==="admin";
+  const[state,setState]=useState(null);
+  const[pool,setPool]=useState([]);
+  const[loading,setLoading]=useState(true);
+  const[loadErr,setLoadErr]=useState(null);
+  const[msg,setMsg]=useState(null);
+  const[saving,setSaving]=useState(false);
+  const[editing,setEditing]=useState(false);
+  const[sel,setSel]=useState([null,null,null]);
+  const[now,setNow]=useState(Date.now());
+  const[adminFilms,setAdminFilms]=useState([]);
+  const[adminSel,setAdminSel]=useState([null,null,null]);
+  const[adminBusy,setAdminBusy]=useState(false);
+  const stateRef=React.useRef(null);
+
+  async function callRpc(fn,args){
+    const session=getSession();
+    const res=await fetch(`${SUPABASE_URL}/rest/v1/rpc/${fn}`,{
+      method:"POST",
+      headers:{"apikey":SUPABASE_ANON_KEY,"Authorization":`Bearer ${session?.access_token||SUPABASE_ANON_KEY}`,"Content-Type":"application/json"},
+      body:JSON.stringify(args)
+    });
+    const data=await res.json().catch(()=>({}));
+    return {ok:res.ok,data};
+  }
+
+  async function load(){
+    const st=await callRpc("weekend_picks_state",{p_league_id:LEAGUE_UUID});
+    if(!st.ok){ setLoadErr(st.data?.message||"Could not load Weekend Picks"); setLoading(false); return; }
+    setLoadErr(null);
+    stateRef.current=st.data;
+    setState(st.data);
+    if(st.data?.enabled&&st.data.week?.phase==="open"){
+      const pl=await callRpc("weekend_pick_pool",{p_league_id:LEAGUE_UUID});
+      if(pl.ok) setPool(pl.data||[]);
+    }
+    setLoading(false);
+  }
+  useEffect(()=>{ load(); },[]);
+
+  // 1s ticker for the countdown. The moment an open window passes its
+  // closes_at, refetch so the picks flip to the revealed view without a
+  // manual refresh.
+  useEffect(()=>{
+    const t=setInterval(()=>{
+      const n=Date.now(); setNow(n);
+      const st=stateRef.current;
+      if(st?.week?.phase==="open"&&n>=new Date(st.week.closes_at).getTime()) load();
+    },1000);
+    return()=>clearInterval(t);
+  },[]);
+
+  useEffect(()=>{
+    if(!state?.week||!isAdmin||adminFilms.length) return;
+    supabaseFetch("universe_films","select=imdb_id,title,release_date&imdb_id=not.is.null&order=title.asc&limit=1000").then(r=>setAdminFilms(r||[]));
+  },[state?.week?.id,isAdmin]);
+
+  function startEditing(){
+    const mine=state?.mine?.picks||[];
+    setSel([0,1,2].map(i=>mine[i]?{imdb_id:mine[i].imdb_id,title:mine[i].title}:null));
+    setEditing(true); setMsg(null);
+  }
+
+  async function submit(){
+    setMsg(null);
+    if(sel.some(x=>!x)){ setMsg({text:"Pick a film for all three spots.",error:true}); return; }
+    setSaving(true);
+    const {ok,data}=await callRpc("submit_weekend_picks",{p_league_id:LEAGUE_UUID,p_pick1:sel[0].imdb_id,p_pick2:sel[1].imdb_id,p_pick3:sel[2].imdb_id});
+    setSaving(false);
+    if(ok){ setMsg({text:"Picks locked in. You can edit them until the window closes.",error:false}); setEditing(false); load(); }
+    else{ setMsg({text:data.message||"Submit failed",error:true}); load(); }
+  }
+
+  async function adminCall(fn,args,okText){
+    setAdminBusy(true); setMsg(null);
+    const {ok,data}=await callRpc(fn,args);
+    setAdminBusy(false);
+    if(ok){ setMsg({text:okText,error:false}); setAdminSel([null,null,null]); await load(); }
+    else setMsg({text:data.message||"Failed",error:true});
+  }
+
+  if(loading) return <div style={{padding:20,textAlign:"center",color:"#6a6a7e"}}>Loading Weekend Picks…</div>;
+  if(loadErr) return <div style={{padding:20,textAlign:"center",color:"#ef4444",fontSize:13}}>{loadErr}</div>;
+  if(!state?.enabled) return <div style={{padding:20,textAlign:"center",color:"#6a6a7e",fontSize:13}}>Weekend Picks isn't enabled for this league.</div>;
+
+  const w=state.week;
+  const phase=w.phase;
+  const closesMs=new Date(w.closes_at).getTime();
+  const opensNextMs=new Date(w.opens_at).getTime()+7*86400000;
+  function countdown(ms){
+    const s=Math.max(0,Math.floor((ms-now)/1000));
+    const d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60),sc=s%60;
+    return `${d?d+"d ":""}${h}h ${String(m).padStart(2,"0")}m ${String(sc).padStart(2,"0")}s`;
+  }
+  const fmtDay=ms=>new Date(ms).toLocaleString("en-US",{weekday:"short",hour:"numeric",minute:"2-digit",timeZone:"America/Los_Angeles",timeZoneName:"short"});
+  const fridayLabel=new Date(w.weekend_friday+"T12:00:00").toLocaleDateString("en-US",{month:"long",day:"numeric"});
+  const takenIds=sel.filter(Boolean).map(x=>x.imdb_id);
+  const showForm=phase==="open"&&(!state.mine||editing);
+  const card={padding:18,borderRadius:10,background:"#111119",border:"1px solid #222233",marginBottom:20};
+  const heading={fontSize:11,fontWeight:700,color:"#6a6a7e",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:12};
+  const actual=w.actual||[];
+  const actualIds=actual.map(a=>a?.imdb_id);
+
+  return(
+    <div>
+      <div style={{...card,borderColor:phase==="open"?"rgba(212,168,67,0.35)":"#222233"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:10,flexWrap:"wrap"}}>
+          <div style={{fontSize:16,fontWeight:800,color:"#e8e8f0"}}>Top 3 Weekend — {fridayLabel}</div>
+          <div style={{fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",color:phase==="open"?"#34d399":phase==="locked"?"#f59e0b":"#8a8a9e"}}>
+            {phase==="open"?"Window open":phase==="locked"?"Locked":"Resolved"}
+          </div>
+        </div>
+        <div style={{fontSize:12,color:"#8a8a9e",marginTop:6,lineHeight:1.5}}>
+          Name the #1, #2 and #3 domestic box office films for the weekend, in order. Get all three in the right order and you earn $1M toward your Acquisitions budget. Nothing for a partial.
+        </div>
+        <div style={{fontSize:12,color:"#d4a843",marginTop:10,fontFamily:"monospace"}}>
+          {phase==="open"&&<>Locks {fmtDay(closesMs)} — {countdown(closesMs)} left</>}
+          {phase==="locked"&&<>Picks are locked. Results land Monday evening after the weekend actuals post. Next window opens {fmtDay(opensNextMs)}.</>}
+          {phase==="resolved"&&<>Next window opens {fmtDay(opensNextMs)} — {countdown(opensNextMs)}</>}
+        </div>
+        {state.my_wins>0&&<div style={{fontSize:12,color:"#34d399",marginTop:8}}>Your Weekend Picks wins: {state.my_wins} (+${state.my_wins}M to your budget)</div>}
+      </div>
+
+      {msg&&<div style={{padding:"10px 14px",borderRadius:7,fontSize:13,marginBottom:16,background:msg.error?"rgba(239,68,68,0.08)":"rgba(52,211,153,0.08)",border:`1px solid ${msg.error?"rgba(239,68,68,0.2)":"rgba(52,211,153,0.2)"}`,color:msg.error?"#ef4444":"#34d399"}}>{msg.text}</div>}
+
+      {phase==="open"&&state.mine&&!editing&&(
+        <div style={card}>
+          <div style={heading}>You've already submitted for this week</div>
+          {state.mine.picks.map((p,i)=>(
+            <div key={i} style={{display:"flex",gap:10,padding:"8px 10px",background:"#1a1a28",borderRadius:6,marginBottom:4,fontSize:13,color:"#e8e8f0"}}>
+              <span style={{color:"#d4a843",fontWeight:800,width:22}}>#{i+1}</span><span>{p.title}</span>
+            </div>
+          ))}
+          <button onClick={startEditing} style={{marginTop:10,padding:"8px 18px",borderRadius:7,border:"1px solid rgba(212,168,67,0.3)",background:"rgba(212,168,67,0.08)",color:"#d4a843",fontSize:12,fontWeight:700,cursor:"pointer"}}>Edit my picks</button>
+          <span style={{fontSize:11,color:"#6a6a7e",marginLeft:10}}>Editable until the window closes.</span>
+        </div>
+      )}
+
+      {showForm&&(
+        <div style={card}>
+          <div style={heading}>{state.mine?"Edit your picks":"Submit your picks"}</div>
+          {pool.length===0&&<div style={{fontSize:12,color:"#f59e0b",marginBottom:10}}>No eligible unreleased films are available right now.</div>}
+          {["#1 — Top box office","#2","#3"].map((label,i)=>(
+            <WeekendFilmPicker key={i} label={label} value={sel[i]} pool={pool} takenIds={takenIds}
+              onChange={f=>setSel(prev=>prev.map((x,j)=>j===i?f:x))}/>
+          ))}
+          <button onClick={submit} disabled={saving} style={{padding:"9px 20px",borderRadius:7,border:"none",background:"#d4a843",color:"#0d0d14",fontSize:12,fontWeight:700,cursor:"pointer",opacity:saving?0.7:1}}>
+            {saving?"Saving…":state.mine?"Save changes":"Lock in my picks"}
+          </button>
+          {state.mine&&<button onClick={()=>{setEditing(false);setMsg(null);}} style={{marginLeft:10,background:"none",border:"none",color:"#6a6a7e",cursor:"pointer",fontSize:12}}>Cancel</button>}
+          <div style={{fontSize:11,color:"#6a6a7e",marginTop:10}}>Only films that haven't been released yet are available.</div>
+        </div>
+      )}
+
+      {phase==="open"&&(
+        <div style={{fontSize:12,color:"#6a6a7e",marginBottom:20}}>Everyone's picks are revealed when the window closes.</div>
+      )}
+
+      {phase!=="open"&&(
+        <>
+          {phase==="resolved"&&(
+            <div style={card}>
+              <div style={heading}>Actual top 3</div>
+              {actual.map((a,i)=>(
+                <div key={i} style={{display:"flex",gap:10,padding:"8px 10px",background:"#1a1a28",borderRadius:6,marginBottom:4,fontSize:13,color:"#e8e8f0"}}>
+                  <span style={{color:"#d4a843",fontWeight:800,width:22}}>#{i+1}</span><span>{a.title}</span>
+                </div>
+              ))}
+              {state.picks.filter(p=>p.is_winner).length===0
+                ?<div style={{fontSize:12,color:"#8a8a9e",marginTop:8}}>No winners this week.</div>
+                :<div style={{fontSize:12,color:"#34d399",marginTop:8}}>Winners (+$1M each): {state.picks.filter(p=>p.is_winner).map(p=>p.team_name).join(", ")}</div>}
+            </div>
+          )}
+          <div style={card}>
+            <div style={heading}>What each exec predicted</div>
+            {state.picks.length===0&&<div style={{fontSize:12,color:"#6a6a7e"}}>Nobody submitted this week.</div>}
+            {state.picks.map(p=>(
+              <div key={p.team_name} style={{padding:"10px 12px",background:p.is_winner?"rgba(52,211,153,0.06)":"#0e0e16",border:`1px solid ${p.is_winner?"rgba(52,211,153,0.3)":"#1a1a28"}`,borderRadius:8,marginBottom:8}}>
+                <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
+                  <span style={{fontSize:13,fontWeight:700,color:"#e8e8f0"}}>{p.team_name}</span>
+                  {phase==="resolved"&&<span style={{fontSize:10,fontWeight:700,textTransform:"uppercase",color:p.is_winner?"#34d399":"#6a6a7e"}}>{p.is_winner?"Winner +$1M":"No points"}</span>}
+                </div>
+                {p.picks.map((f,i)=>(
+                  <div key={i} style={{fontSize:12,color:phase==="resolved"&&actualIds[i]&&actualIds[i]===f.imdb_id?"#34d399":"#8a8a9e",padding:"2px 0"}}>
+                    <span style={{color:"#d4a843",fontWeight:700,marginRight:8}}>#{i+1}</span>{f.title}{phase==="resolved"&&actualIds[i]&&actualIds[i]===f.imdb_id?" ✓":""}
+                  </div>
+                ))}
+              </div>
+            ))}
+            {state.missing.length>0&&<div style={{fontSize:11,color:"#6a6a7e",marginTop:6}}>Didn't submit: {state.missing.join(", ")}</div>}
+          </div>
+        </>
+      )}
+
+      {state.wins_by_team.some(t=>t.wins>0)&&(
+        <div style={card}>
+          <div style={heading}>Weekend Picks wins</div>
+          {state.wins_by_team.filter(t=>t.wins>0).sort((a,b)=>b.wins-a.wins).map(t=>(
+            <div key={t.team_name} style={{display:"flex",justifyContent:"space-between",fontSize:12,color:"#e8e8f0",padding:"4px 0"}}><span>{t.team_name}</span><span style={{fontFamily:"monospace",color:"#d4a843"}}>{t.wins} win{t.wins===1?"":"s"} · ${t.wins}M</span></div>
+          ))}
+        </div>
+      )}
+
+      {isAdmin&&(
+        <div style={{padding:16,borderRadius:10,background:"#0e0e16",border:"1px solid #222233"}}>
+          <div style={{fontSize:11,fontWeight:700,color:"#d4a843",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>Admin: Playtest Tools</div>
+          <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:14}}>
+            <button disabled={adminBusy||phase!=="open"} onClick={()=>adminCall("admin_close_weekend_window",{p_league_id:LEAGUE_UUID},"Window closed early.")}
+              style={{padding:"7px 16px",borderRadius:7,border:"1px solid rgba(212,168,67,0.3)",background:"rgba(212,168,67,0.08)",color:"#d4a843",fontSize:12,fontWeight:700,cursor:phase==="open"?"pointer":"not-allowed",opacity:phase==="open"?1:0.5}}>Close window now</button>
+            <button disabled={adminBusy} onClick={()=>{ if(window.confirm("Delete this cycle's picks and result and reopen the window?")) adminCall("admin_reset_weekend_week",{p_league_id:LEAGUE_UUID},"This cycle was reset."); }}
+              style={{padding:"7px 16px",borderRadius:7,border:"1px solid rgba(239,68,68,0.3)",background:"rgba(239,68,68,0.06)",color:"#ef4444",fontSize:12,fontWeight:700,cursor:"pointer"}}>Reset this cycle</button>
+          </div>
+          {phase!=="open"&&(
+            <>
+              <div style={{fontSize:11,color:"#8a8a9e",marginBottom:8}}>Declare the weekend result by hand (normally the Monday-evening cron does this from Box Office Mojo). Safe to re-run to correct it.</div>
+              {["#1","#2","#3"].map((label,i)=>(
+                <WeekendFilmPicker key={i} label={label} value={adminSel[i]} pool={adminFilms} takenIds={adminSel.filter(Boolean).map(x=>x.imdb_id)}
+                  onChange={f=>setAdminSel(prev=>prev.map((x,j)=>j===i?f:x))}/>
+              ))}
+              <button disabled={adminBusy||adminSel.some(x=>!x)} onClick={()=>adminCall("admin_resolve_weekend_picks",{p_league_id:LEAGUE_UUID,p_top3:adminSel.map(x=>x.imdb_id)},"Result applied.")}
+                style={{padding:"7px 16px",borderRadius:7,border:"none",background:"#d4a843",color:"#0d0d14",fontSize:12,fontWeight:700,cursor:"pointer",opacity:adminSel.some(x=>!x)?0.5:1}}>Apply result</button>
+            </>
+          )}
         </div>
       )}
     </div>
