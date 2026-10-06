@@ -2447,7 +2447,8 @@ function RefundBanner({films,onGo}){
             <span style={{position:"absolute",inset:0,pointerEvents:"none"}}><Sparkler width={600} height={80} particleCount={28} intervalMs={2000} colors={['#2dd4bf','#5eead4','#ffffff','#14b8a6','#99f6e4','#67e8f9','#ecfeff']}/></span>
             <div style={{position:"relative",zIndex:1}}>
               <div style={{fontSize:10,fontWeight:800,letterSpacing:"0.2em",color:"#2a8f84",marginBottom:4}}>FILM REFUNDED</div>
-              <div style={{fontSize:20,fontWeight:900,color:"#5eead4",lineHeight:1.25}}>{r.film_title||r.imdb_id} is UP FOR GRABS</div>
+              <div style={{fontSize:20,fontWeight:900,color:"#5eead4",lineHeight:1.25}}>{r.film_title||r.imdb_id}</div>
+              <div style={{fontSize:13,fontWeight:900,letterSpacing:"0.18em",color:"#99f6e4",marginTop:2}}>IS UP FOR GRABS</div>
               <div style={{fontSize:12,color:"#8fd3cb",marginTop:5}}>{r.team_name} refunded it (${r.original_bid}M bid, ${r.credit_amount}M credited). Anyone can bid on it in Acquisitions.</div>
             </div>
           </div>
