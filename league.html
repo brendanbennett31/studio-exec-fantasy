@@ -4427,7 +4427,7 @@ class WeekendErrorBoundary extends React.Component{
   }
 }
 
-function WeekendFilmPicker({label,value,onChange,pool,takenIds,disabled}){
+function WeekendFilmPicker({label,value,onChange,pool,takenIds,disabled,placeholder}){
   const[q,setQ]=useState("");
   const[focus,setFocus]=useState(false);
   function norm(t){return (t||"").toLowerCase().replace(/^(the |a |an )/,"").replace(/[^a-z0-9]+/g," ").trim();}
@@ -4443,8 +4443,8 @@ function WeekendFilmPicker({label,value,onChange,pool,takenIds,disabled}){
       .slice(0,40);
   },[q,pool,takenIds]);
   return(
-    <div style={{position:"relative",marginBottom:12}}>
-      <div style={{fontSize:11,fontWeight:700,color:"#d4a843",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>{label}</div>
+    <div style={{position:"relative",marginBottom:12,opacity:disabled?0.45:1,cursor:disabled?"not-allowed":"auto"}}>
+      <div style={{fontSize:11,fontWeight:700,color:disabled?"#6a6a7e":"#d4a843",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>{label}</div>
       {value?(
         <div style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",borderRadius:7,border:"1px solid rgba(52,211,153,0.3)",background:"rgba(52,211,153,0.05)"}}>
           <div style={{flex:1,fontSize:13,color:"#e8e8f0"}}>{value.title}</div>
@@ -4453,8 +4453,8 @@ function WeekendFilmPicker({label,value,onChange,pool,takenIds,disabled}){
       ):(
         <>
           <input value={q} disabled={disabled} onChange={e=>setQ(e.target.value)} onFocus={()=>setFocus(true)} onBlur={()=>setTimeout(()=>setFocus(false),150)}
-            placeholder="Search films…"
-            style={{width:"100%",padding:"9px 12px",borderRadius:7,border:"1px solid #2a2a3a",background:"#0e0e16",color:"#e8e8f0",fontSize:13,boxSizing:"border-box"}}/>
+            placeholder={placeholder||"Search films…"}
+            style={{width:"100%",padding:"9px 12px",borderRadius:7,border:"1px solid #2a2a3a",background:disabled?"#14141c":"#0e0e16",color:"#e8e8f0",fontSize:13,boxSizing:"border-box",cursor:disabled?"not-allowed":"text"}}/>
           {focus&&(
             <div style={{position:"absolute",left:0,right:0,zIndex:20,maxHeight:200,overflowY:"auto",background:"#0e0e16",border:"1px solid #2a2a3a",borderRadius:7,marginTop:2}}>
               {matches.map(f=>(
@@ -4585,10 +4585,7 @@ function WeekendPicksTab({leagueContext,userMembership}){
             {phase==="open"?"Window open":phase==="locked"?"Locked":"Resolved"}
           </div>
         </div>
-        <div style={{fontSize:12,color:"#8a8a9e",marginTop:6,lineHeight:1.5}}>
-          Name the #1, #2 and #3 domestic box office films for the weekend, in order. Get all three in the right order and you earn $1M toward your Acquisitions budget. Nothing for a partial.
-        </div>
-        <div style={{fontSize:12,color:"#d4a843",marginTop:10,fontFamily:"monospace"}}>
+                <div style={{fontSize:12,color:"#d4a843",marginTop:10,fontFamily:"monospace"}}>
           {phase==="open"&&<>Locks {fmtDay(closesMs)} — {countdown(closesMs)} left</>}
           {phase==="locked"&&<>Picks are locked. Results land Monday evening after the weekend actuals post. Next window opens {fmtDay(opensNextMs)}.</>}
           {phase==="resolved"&&<>Next window opens {fmtDay(opensNextMs)} — {countdown(opensNextMs)}</>}
@@ -4633,6 +4630,13 @@ function WeekendPicksTab({leagueContext,userMembership}){
 
       {phase!=="open"&&(
         <>
+          <div style={{...card,borderStyle:"dashed"}}>
+            <div style={heading}>Next window — opens {fmtDay(opensNextMs)}</div>
+            {["#1 — Top box office","#2","#3"].map((label,i)=>(
+              <WeekendFilmPicker key={i} label={label} value={null} pool={[]} takenIds={[]} disabled={true} placeholder="Not open yet"/>
+            ))}
+            <div style={{fontSize:11,color:"#6a6a7e"}}>Picks open in {countdown(opensNextMs)}.</div>
+          </div>
           {phase==="resolved"&&(
             <div style={card}>
               <div style={heading}>Actual top 3</div>
