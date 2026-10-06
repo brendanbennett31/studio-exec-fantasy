@@ -1533,8 +1533,12 @@ function App(){
   // lands (films.length>0, from either path) or draft_mode gets set.
   const needsDraftModeChoice = !IS_LEGACY && !PUBLIC_VIEW_MODE && !!leagueCtx && films.length===0 && leagueCtx.draft_mode===null && liveStatus!=="loading";
   const tabList=endgameActive
-    ?[{id:"standings",label:"Standings"},{id:"awards",label:"Awards"},{id:"timeline",label:"Calendar"},{id:"purchase",label:"By Price"},{id:"trends",label:"Trends"},...acqTab,...weekendTab,...draftTab,{id:"rules",label:"Rules"},...(isAdmin&&!IS_LEGACY?[{id:"manage",label:"Manage",admin:true}]:[])]
-    :[{id:"standings",label:"Standings"},{id:"timeline",label:"Calendar"},{id:"purchase",label:"By Price"},{id:"trends",label:"Trends"},{id:"awards",label:"Awards"},...acqTab,...weekendTab,...draftTab,{id:"rules",label:"Rules"},...(isAdmin&&!IS_LEGACY?[{id:"manage",label:"Manage",admin:true}]:[])];
+    ?[{id:"standings",label:"Standings"},{id:"awards",label:"Awards"},{id:"timeline",label:"Calendar"},{id:"purchase",label:"By Price"},{id:"trends",label:"Trends"},...draftTab,{id:"rules",label:"Rules"},...(isAdmin&&!IS_LEGACY?[{id:"manage",label:"Manage",admin:true}]:[])]
+    :[{id:"standings",label:"Standings"},{id:"timeline",label:"Calendar"},{id:"purchase",label:"By Price"},{id:"trends",label:"Trends"},{id:"awards",label:"Awards"},...draftTab,{id:"rules",label:"Rules"},...(isAdmin&&!IS_LEGACY?[{id:"manage",label:"Manage",admin:true}]:[])];
+
+  // Experimental features get their own second bar (violet, "ALPHA" chip) so
+  // everyone can tell at a glance they're still being playtested.
+  const alphaTabList=[...acqTab,...weekendTab];
 
   // Theme palette swaps based on endgame
   const theme=endgameActive?{
@@ -1686,6 +1690,12 @@ function App(){
         <div style={{display:"flex",gap:2,background:theme.cardBg,borderRadius:8,padding:3,marginBottom:16,overflowX:"auto",marginTop:12,border:endgameActive?`1px solid ${theme.border}`:"none"}}>
           {tabList.map(t=>(<button key={t.id} onClick={()=>setTab(t.id)} style={{flex:1,padding:"10px 4px",border:"none",borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:700,letterSpacing:"0.05em",textTransform:"uppercase",whiteSpace:"nowrap",background:tab===t.id?(endgameActive?"rgba(212,168,67,0.15)":theme.cardBgHi):"transparent",color:tab===t.id?theme.gold:t.admin?"rgba(212,168,67,0.4)":theme.textMuted,border:tab===t.id&&endgameActive?`1px solid ${theme.borderHi}`:"none"}}>{t.label}</button>))}
         </div>
+        {alphaTabList.length>0&&(
+          <div style={{display:"flex",alignItems:"center",gap:6,background:"rgba(139,92,246,0.07)",border:"1px dashed rgba(139,92,246,0.4)",borderRadius:8,padding:"4px 6px",marginBottom:16,marginTop:-8,overflowX:"auto"}}>
+            <span title="Experimental features still being playtested" style={{fontSize:9,fontWeight:800,letterSpacing:"0.12em",color:"#a78bfa",background:"rgba(139,92,246,0.18)",border:"1px solid rgba(139,92,246,0.45)",borderRadius:4,padding:"3px 6px",whiteSpace:"nowrap"}}>ALPHA · TESTING</span>
+            {alphaTabList.map(t=>(<button key={t.id} onClick={()=>setTab(t.id)} style={{flex:1,padding:"9px 4px",border:"none",borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:700,letterSpacing:"0.05em",textTransform:"uppercase",whiteSpace:"nowrap",background:tab===t.id?"rgba(139,92,246,0.22)":"transparent",color:tab===t.id?"#c4b5fd":"#8b7bbf"}}>{t.label}</button>))}
+          </div>
+        )}
         {tab==="standings"&&<div key="standings" style={{animation:"fadeSlideUp 0.4s ease-out both"}}><StandingsTab data={data} studioNames={studioNames} expandedExecs={expandedExecs} setExpandedExecs={setExpandedExecs} liveStatus={liveStatus} myTeam={myTeam}/></div>}
         {tab==="timeline"&&<div key="timeline" style={{animation:"fadeSlideUp 0.4s ease-out both"}}><CalendarView films={films} studioNames={studioNames}/></div>}
         {tab==="trends"&&<TrendsTab films={films} data={data} studioNames={studioNames} weeklyBO={weeklyBO} weeklyPOI={weeklyPOI} leagueCtx={leagueCtx}/>}
