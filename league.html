@@ -4190,38 +4190,44 @@ function Rules({leagueCtx}){
 // migrations 021-023 RPCs -- this is display + the self-service actions,
 // same trust boundary as the rest of this app's admin-gated writes.
 function AcquisitionWindowBanner({week,phase,declared}){
-  const[,forceTick]=useState(0);
+  // Same look as the Weekend Picks header card: title + status chip, then a
+  // monospace gold line with the deadline and a live (1s) countdown.
+  const[now,setNow]=useState(Date.now());
   useEffect(()=>{
-    const t=setInterval(()=>forceTick(x=>x+1),30000); // keep the countdown fresh
+    const t=setInterval(()=>setNow(Date.now()),1000);
     return()=>clearInterval(t);
   },[]);
 
+  const card={padding:18,borderRadius:10,background:"#111119",border:"1px solid #222233",marginBottom:20};
   if(!week){
-    return <div style={{padding:"14px 16px",borderRadius:10,background:"#111119",border:"1px solid #222233",color:"#6a6a7e",fontSize:13,marginBottom:16}}>No active Acquisitions window yet — check back Friday.</div>;
+    return <div style={{...card,color:"#6a6a7e",fontSize:13}}>No active Acquisitions window yet — check back Friday.</div>;
   }
 
-  const now=new Date();
-  const target=phase==="declare"?new Date(week.declare_deadline):phase==="bid"?new Date(week.bid_deadline):null;
-  let countdown=null;
-  if(target){
-    const ms=Math.max(0,target-now);
-    const h=Math.floor(ms/3.6e6), m=Math.floor((ms%3.6e6)/6e4);
-    countdown=`${h}h ${m}m`;
+  const targetMs=phase==="declare"?new Date(week.declare_deadline).getTime():phase==="bid"?new Date(week.bid_deadline).getTime():null;
+  function countdown(ms){
+    const s=Math.max(0,Math.floor((ms-now)/1000));
+    const d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60),sc=s%60;
+    return `${d?d+"d ":""}${h}h ${String(m).padStart(2,"0")}m ${String(sc).padStart(2,"0")}s`;
   }
+  const fmtDay=ms=>new Date(ms).toLocaleString("en-US",{weekday:"short",hour:"numeric",minute:"2-digit",timeZone:"America/Los_Angeles",timeZoneName:"short"});
 
   const label={declare:"Declaration Open",bid:"Bidding Open",resolving:"Resolving…",closed:"Window Closed"}[phase];
+  const color={declare:"#3498db",bid:declared?"#34d399":"#6a6a7e",resolving:"#fbbf24",closed:"#6a6a7e"}[phase];
+  const live=phase==="declare"||(phase==="bid"&&declared);
   const sub={
-    declare:`Declare intent to bid — ${countdown} left`,
-    bid: declared?`Submit at least one bid — ${countdown} left`:"You didn't declare this week, so you can't bid — see you next Friday.",
+    declare:`Declaration closes ${fmtDay(targetMs)} — ${countdown(targetMs)} left`,
+    bid: declared?`Bidding closes ${fmtDay(targetMs)} — ${countdown(targetMs)} left`:"You didn't declare this week, so you can't bid — see you next Friday.",
     resolving:"Bids are locked in and about to be resolved.",
     closed:"Next window opens Friday.",
   }[phase];
-  const color={declare:"#3498db",bid:declared?"#34d399":"#6a6a7e",resolving:"#fbbf24",closed:"#6a6a7e"}[phase];
 
   return(
-    <div style={{padding:"14px 16px",borderRadius:10,background:"#111119",border:`1px solid ${color}44`,marginBottom:16}}>
-      <div style={{fontSize:13,fontWeight:700,color,marginBottom:2}}>{label}</div>
-      <div style={{fontSize:12,color:"#8a8a9e"}}>{sub}</div>
+    <div style={{...card,borderColor:live?"rgba(212,168,67,0.35)":"#222233"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:10,flexWrap:"wrap"}}>
+        <div style={{fontSize:16,fontWeight:800,color:"#e8e8f0"}}>Acquisitions</div>
+        <div style={{fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",color}}>{label}</div>
+      </div>
+      <div style={{fontSize:12,color:live?"#d4a843":"#8a8a9e",marginTop:10,fontFamily:"monospace"}}>{sub}</div>
     </div>
   );
 }
@@ -4394,7 +4400,7 @@ function AcquisitionsTab({leagueContext,members,userMembership}){
 
       {phase==="declare"&&!declared&&(
         <div style={{padding:20,borderRadius:10,background:"#111119",border:"1px solid #222233",marginBottom:20,textAlign:"center"}}>
-          <div style={{fontSize:13,color:"#8a8a9e",marginBottom:14}}>Declare intent to bid this week. You'll need to submit at least one bid on Wednesday, or it'll be flagged as a violation.</div>
+          <div style={{fontSize:13,color:"#8a8a9e",marginBottom:14}}>Declare intent to bid this week. You'll need to submit at least one bid on Wednesday.</div>
           <button onClick={declareIntent} disabled={declaring} style={{padding:"10px 24px",borderRadius:8,border:"none",background:"#d4a843",color:"#0d0d14",fontSize:13,fontWeight:700,cursor:"pointer",opacity:declaring?0.7:1}}>
             {declaring?"Declaring…":"Declare Intent to Bid"}
           </button>
