@@ -30,30 +30,30 @@ begin
 
   -- Only while the old RAFA history still exists (i.e. this hasn't run yet):
   -- after the rename, "Rafael" rows are the real history and must be kept.
-  if exists (select 1 from weekly_bo_snapshots where league_id = v_league and team = 'RAFA')
-     or exists (select 1 from weekly_poi_snapshots where league_id = v_league and team = 'RAFA') then
-    select (select count(*) from weekly_bo_snapshots  where league_id = v_league and team = 'Rafael' and bo  <> 0)
-         + (select count(*) from weekly_poi_snapshots where league_id = v_league and team = 'Rafael' and poi <> 0)
+  if exists (select 1 from weekly_bo_snapshots where league_id::text = v_league::text and team = 'RAFA')
+     or exists (select 1 from weekly_poi_snapshots where league_id::text = v_league::text and team = 'RAFA') then
+    select (select count(*) from weekly_bo_snapshots  where league_id::text = v_league::text and team = 'Rafael' and bo  <> 0)
+         + (select count(*) from weekly_poi_snapshots where league_id::text = v_league::text and team = 'Rafael' and poi <> 0)
     into v_nonzero;
     if v_nonzero > 0 then
       raise exception 'Phantom Rafael snapshot rows are not all zero (%) -- merge by hand instead', v_nonzero;
     end if;
 
     -- Phantom rows (they'd collide with the renamed RAFA history).
-    delete from weekly_bo_snapshots  where league_id = v_league and team = 'Rafael';
-    delete from weekly_poi_snapshots where league_id = v_league and team = 'Rafael';
+    delete from weekly_bo_snapshots  where league_id::text = v_league::text and team = 'Rafael';
+    delete from weekly_poi_snapshots where league_id::text = v_league::text and team = 'Rafael';
   end if;
 
-  update league_picks set team_name = 'Brandon'      where league_id = v_league and team_name = 'BRANDON';
-  update league_picks set team_name = 'Rafael'       where league_id = v_league and team_name = 'RAFA';
-  update league_picks set team_name = 'sampadiankai' where league_id = v_league and team_name = 'KAI';
+  update league_picks set team_name = 'Brandon'      where league_id::text = v_league::text and team_name = 'BRANDON';
+  update league_picks set team_name = 'Rafael'       where league_id::text = v_league::text and team_name = 'RAFA';
+  update league_picks set team_name = 'sampadiankai' where league_id::text = v_league::text and team_name = 'KAI';
 
-  update weekly_bo_snapshots  set team = 'Brandon'      where league_id = v_league and team = 'BRANDON';
-  update weekly_bo_snapshots  set team = 'Rafael'       where league_id = v_league and team = 'RAFA';
-  update weekly_bo_snapshots  set team = 'sampadiankai' where league_id = v_league and team = 'KAI';
-  update weekly_poi_snapshots set team = 'Brandon'      where league_id = v_league and team = 'BRANDON';
-  update weekly_poi_snapshots set team = 'Rafael'       where league_id = v_league and team = 'RAFA';
-  update weekly_poi_snapshots set team = 'sampadiankai' where league_id = v_league and team = 'KAI';
+  update weekly_bo_snapshots  set team = 'Brandon'      where league_id::text = v_league::text and team = 'BRANDON';
+  update weekly_bo_snapshots  set team = 'Rafael'       where league_id::text = v_league::text and team = 'RAFA';
+  update weekly_bo_snapshots  set team = 'sampadiankai' where league_id::text = v_league::text and team = 'KAI';
+  update weekly_poi_snapshots set team = 'Brandon'      where league_id::text = v_league::text and team = 'BRANDON';
+  update weekly_poi_snapshots set team = 'Rafael'       where league_id::text = v_league::text and team = 'RAFA';
+  update weekly_poi_snapshots set team = 'sampadiankai' where league_id::text = v_league::text and team = 'KAI';
 end $$;
 
 -- Should now be BB, Brandon, PATRICK, Rafael, sampadiankai (and nothing else).
