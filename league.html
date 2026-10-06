@@ -1691,7 +1691,7 @@ function App(){
         {tab==="trends"&&<TrendsTab films={films} data={data} studioNames={studioNames} weeklyBO={weeklyBO} weeklyPOI={weeklyPOI} leagueCtx={leagueCtx}/>}
         {tab==="purchase"&&<div key="purchase" style={{animation:"fadeSlideUp 0.4s ease-out both"}}><PurchasePriceTab films={films} data={data} studioNames={studioNames}/></div>}
         {tab==="awards"&&<div key="awards" style={{animation:"fadeSlideUp 0.4s ease-out both"}}><AwardsTab films={films} leagueCtx={leagueCtx}/></div>}
-        {tab==="weekend"&&!IS_LEGACY&&leagueCtx?.weekend_picks_enabled&&<div key="weekend" style={{animation:"fadeSlideUp 0.4s ease-out both"}}><WeekendPicksTab leagueContext={leagueCtx} userMembership={membership}/></div>}
+        {tab==="weekend"&&!IS_LEGACY&&leagueCtx?.weekend_picks_enabled&&<div key="weekend" style={{animation:"fadeSlideUp 0.4s ease-out both"}}><WeekendErrorBoundary><WeekendPicksTab leagueContext={leagueCtx} userMembership={membership}/></WeekendErrorBoundary></div>}
         {tab==="acquisitions"&&!IS_LEGACY&&leagueCtx?.acquisitions_enabled&&<div key="acquisitions" style={{animation:"fadeSlideUp 0.4s ease-out both"}}><AcquisitionsTab leagueContext={leagueCtx} members={leagueMembers} userMembership={membership}/></div>}
         {tab==="draft"&&!IS_LEGACY&&draftTab.length>0&&<div key="draft" style={{animation:"fadeSlideUp 0.4s ease-out both"}}><DraftRoomTab leagueContext={leagueCtx} members={leagueMembers} userMembership={membership} films={films} draftSession={draftSession} setDraftSession={setDraftSession}/></div>}
         {tab==="rules"&&<div key="rules" style={{animation:"fadeSlideUp 0.4s ease-out both"}}><Rules leagueCtx={leagueCtx}/></div>}
@@ -4406,6 +4406,17 @@ function AcquisitionsTab({leagueContext,members,userMembership}){
 // weekend_* RPCs -- this component only renders what weekend_picks_state()
 // returns and calls submit_weekend_picks()). Opt-in per league via
 // leagues.weekend_picks_enabled.
+// A render error in this tab should show a message, not blank the whole page.
+class WeekendErrorBoundary extends React.Component{
+  constructor(props){ super(props); this.state={err:null}; }
+  static getDerivedStateFromError(err){ return {err}; }
+  componentDidCatch(err){ console.error("[weekend picks] render failed:",err); }
+  render(){
+    if(this.state.err) return <div style={{padding:20,borderRadius:10,background:"rgba(239,68,68,0.08)",border:"1px solid rgba(239,68,68,0.2)",color:"#ef4444",fontSize:13}}>Weekend Picks hit an error: {String(this.state.err&&this.state.err.message||this.state.err)}. Reload the page; if it keeps happening, tell Brendan.</div>;
+    return this.props.children;
+  }
+}
+
 function WeekendFilmPicker({label,value,onChange,pool,takenIds,disabled}){
   const[q,setQ]=useState("");
   const[focus,setFocus]=useState(false);
@@ -4414,9 +4425,11 @@ function WeekendFilmPicker({label,value,onChange,pool,takenIds,disabled}){
     const n=norm(q);
     // Upcoming films first (soonest first), then already-released holdovers (newest first).
     const today=new Date().toISOString().slice(0,10);
-    const rank=f=>f.release_date>today?0:1;
+    // release_date can be null (TBA films in the admin list) -- treat as "" so sorting never throws.
+    const rd=f=>f.release_date||"";
+    const rank=f=>rd(f)>today?0:1;
     return pool.filter(f=>!takenIds.includes(f.imdb_id)&&(!n||norm(f.title).includes(n)))
-      .sort((a,b)=>rank(a)-rank(b)||(rank(a)===0?a.release_date.localeCompare(b.release_date):b.release_date.localeCompare(a.release_date)))
+      .sort((a,b)=>rank(a)-rank(b)||(rank(a)===0?rd(a).localeCompare(rd(b)):rd(b).localeCompare(rd(a))))
       .slice(0,40);
   },[q,pool,takenIds]);
   return(
@@ -4437,7 +4450,7 @@ function WeekendFilmPicker({label,value,onChange,pool,takenIds,disabled}){
               {matches.map(f=>(
                 <div key={f.imdb_id} onMouseDown={e=>{e.preventDefault();onChange(f);setQ("");}} style={{padding:"8px 12px",fontSize:13,cursor:"pointer",color:"#e8e8f0",borderBottom:"1px solid #1a1a28",display:"flex",justifyContent:"space-between",gap:10}}
                   onMouseEnter={e=>e.currentTarget.style.background="#1a1a28"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
-                  <span>{f.title}</span><span style={{color:"#6a6a7e",fontSize:11,fontFamily:"monospace"}}>{f.release_date>new Date().toISOString().slice(0,10)?f.release_date:"in theaters · "+f.release_date}</span>
+                  <span>{f.title}</span><span style={{color:"#6a6a7e",fontSize:11,fontFamily:"monospace"}}>{!f.release_date?"TBA":f.release_date>new Date().toISOString().slice(0,10)?f.release_date:"in theaters · "+f.release_date}</span>
                 </div>
               ))}
               {matches.length===0&&<div style={{padding:"10px 12px",fontSize:12,color:"#6a6a7e"}}>No films match.</div>}
