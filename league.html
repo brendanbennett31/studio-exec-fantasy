@@ -1686,6 +1686,7 @@ function App(){
           })}
         </div>
         <TodayReleasePills films={films}/>
+        <RefundBanner films={films} onGo={()=>setTab("acquisitions")}/>
         <H2HBanner films={films}/>
         <div style={{display:"flex",gap:2,background:theme.cardBg,borderRadius:8,padding:3,marginBottom:16,overflowX:"auto",marginTop:12,border:endgameActive?`1px solid ${theme.border}`:"none"}}>
           {tabList.map(t=>(<button key={t.id} onClick={()=>setTab(t.id)} style={{flex:1,padding:"10px 4px",border:"none",borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:700,letterSpacing:"0.05em",textTransform:"uppercase",whiteSpace:"nowrap",background:tab===t.id?(endgameActive?"rgba(212,168,67,0.15)":theme.cardBgHi):"transparent",color:tab===t.id?theme.gold:t.admin?"rgba(212,168,67,0.4)":theme.textMuted,border:tab===t.id&&endgameActive?`1px solid ${theme.borderHi}`:"none"}}>{t.label}</button>))}
@@ -2381,6 +2382,77 @@ function StandingsTab({data,studioNames,expandedExecs,setExpandedExecs,liveStatu
         ?<StandingsBO data={data} studioNames={studioNames} expandedExecs={expandedExecs} toggleExec={toggleExec} liveStatus={liveStatus} myTeam={myTeam}/>
         :<StandingsPOI data={data} studioNames={studioNames} expandedExecs={expandedExecs} toggleExec={toggleExec} liveStatus={liveStatus} myTeam={myTeam}/>
       }
+      <AcqBudgetPanel ranked={data.ranked} myTeam={myTeam}/>
+    </div>
+  );
+}
+
+// Acquisitions budget per exec, for leagues that have opted into Acquisitions.
+// Violet + ALPHA chip to match the experimental-features bar. Numbers come
+// from league_acquisitions_budgets() (see ACQ_BUDGETS), the same source as the
+// budget chip on each standings card.
+function AcqBudgetPanel({ranked,myTeam}){
+  if(!LEAGUE_CONTEXT?.acquisitions_enabled) return null;
+  const rows=ranked.map(e=>({e,b:ACQ_BUDGETS[e.name]||null}));
+  if(!rows.some(r=>r.b)) return null;
+  const sorted=[...rows].sort((a,b)=>(b.b?b.b.remaining:-1)-(a.b?a.b.remaining:-1));
+  return(
+    <div style={{background:"rgba(139,92,246,0.06)",border:"1px dashed rgba(139,92,246,0.4)",borderRadius:10,padding:18,marginTop:16}}>
+      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
+        <span style={{fontSize:12,fontWeight:700,color:"#c4b5fd",letterSpacing:"0.08em",textTransform:"uppercase"}}>Acquisitions Budget</span>
+        <span style={{fontSize:9,fontWeight:800,letterSpacing:"0.12em",color:"#a78bfa",background:"rgba(139,92,246,0.18)",border:"1px solid rgba(139,92,246,0.45)",borderRadius:4,padding:"3px 6px"}}>ALPHA · TESTING</span>
+      </div>
+      {sorted.map(({e,b})=>(
+        <div key={e.name} style={{display:"flex",alignItems:"baseline",justifyContent:"space-between",gap:10,padding:"8px 0",borderTop:"1px solid rgba(139,92,246,0.15)",flexWrap:"wrap"}}>
+          <div style={{display:"flex",alignItems:"center",gap:8,minWidth:0}}>
+            <div style={{width:9,height:9,borderRadius:"50%",background:EXEC_COLORS[e.name],flexShrink:0}}/>
+            <span style={{fontWeight:700,fontSize:13,color:myTeam&&e.name===myTeam?"#d4a843":"#e8e8f0"}}>{PLAYER_NAMES[e.name]}</span>
+          </div>
+          {b?(
+            <div style={{textAlign:"right",marginLeft:"auto"}}>
+              <div style={{fontFamily:"monospace",fontSize:16,fontWeight:700,color:"#c4b5fd"}}>${b.remaining}M</div>
+              <div style={{fontSize:10,color:"#8b7bbf",fontFamily:"monospace"}}>
+                ${b.budgetDefault}M base{b.remainderCredit?` + $${b.remainderCredit}M draft leftover`:""}{b.refundCredits?` + $${b.refundCredits}M refunds`:""}{b.weekendPickCredits?` + $${b.weekendPickCredits}M weekend picks`:""} − ${b.spent}M spent
+              </div>
+            </div>
+          ):(
+            <span style={{fontSize:11,color:"#6a6a7e",fontStyle:"italic"}}>no account in this league yet</span>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// Big 24-hour announcement when someone refunds a film: it's back in the pool
+// for anyone to bid on. Same glow + sparkler language as the release-day pills.
+// Refund rows are readable by every league member (refunds_select RLS). Hidden
+// once someone has re-acquired the film (it's no longer "up for grabs").
+function RefundBanner({films,onGo}){
+  const[refunds,setRefunds]=useState([]);
+  useEffect(()=>{
+    if(!LEAGUE_CONTEXT?.acquisitions_enabled) return;
+    const since=new Date(Date.now()-24*3600*1000).toISOString();
+    supabaseFetch("refunds",`league_id=eq.${LEAGUE_UUID}&refunded_at=gte.${encodeURIComponent(since)}&order=refunded_at.desc`)
+      .then(rows=>setRefunds(rows||[])).catch(()=>{});
+  },[]);
+  const live=refunds.filter(r=>Date.now()-new Date(r.refunded_at).getTime()<24*3600*1000 && !(films||[]).some(f=>f.imdb_id&&f.imdb_id===r.imdb_id));
+  if(live.length===0) return null;
+  return(
+    <div style={{display:"flex",flexDirection:"column",gap:8,padding:"4px 0 14px",animation:"fadeSlideUp 0.5s ease-out both"}}>
+      {live.map(r=>{
+        const hrs=Math.max(1,Math.ceil((24*3600*1000-(Date.now()-new Date(r.refunded_at).getTime()))/3600000));
+        return(
+          <div key={r.id} onClick={onGo} role="button" style={{position:"relative",overflow:"hidden",cursor:"pointer",textAlign:"center",padding:"16px 18px",borderRadius:12,background:"#1a1408",border:"1px solid #d4a843",animation:"releaseGlow 2.5s ease-in-out infinite"}}>
+            <span style={{position:"absolute",inset:0,pointerEvents:"none"}}><Sparkler width={600} height={80} particleCount={28} intervalMs={2000}/></span>
+            <div style={{position:"relative",zIndex:1}}>
+              <div style={{fontSize:10,fontWeight:800,letterSpacing:"0.2em",color:"#a07c2e",marginBottom:4}}>FILM REFUNDED · UP FOR GRABS</div>
+              <div style={{fontSize:18,fontWeight:900,color:"#d4a843",lineHeight:1.25}}>{r.film_title||r.imdb_id} is back on the market</div>
+              <div style={{fontSize:12,color:"#c9b27a",marginTop:5}}>{r.team_name} refunded it (${r.original_bid}M bid, ${r.credit_amount}M credited). Anyone can bid on it in Acquisitions. <span style={{opacity:0.7,fontFamily:"monospace"}}>· on the board ~{hrs}h more</span></div>
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -2615,7 +2687,9 @@ function StandingsBO({data,studioNames,expandedExecs,toggleExec,liveStatus,myTea
                         <span>Spent: <span style={{color:"#34d399"}}>${spent}M</span></span>
                         <span>Pending: <span style={{color:"#f87171"}}>${pending}M</span></span>
                         <span>Total: <span style={{color:"#60a5fa"}}>${exec.totalSpent}M</span></span>
-                        {exec.remaining>0&&<span>Remainder: <span style={{color:"#d4a843"}}>${exec.remaining}M</span></span>}
+                        {LEAGUE_CONTEXT?.acquisitions_enabled&&ACQ_BUDGETS[exec.name]
+                          ?<span title="Remaining Acquisitions budget (alpha)" style={{color:"#c4b5fd",background:"rgba(139,92,246,0.14)",border:"1px solid rgba(139,92,246,0.4)",borderRadius:4,padding:"0 6px",fontWeight:700}}>Acq. Budget: ${ACQ_BUDGETS[exec.name].remaining}M</span>
+                          :exec.remaining>0&&<span>Remainder: <span style={{color:"#d4a843"}}>${exec.remaining}M</span></span>}
                       </>);
                     })()}
                   </div>
