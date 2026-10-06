@@ -1725,6 +1725,7 @@ function App(){
         @keyframes rankFall{0%{transform:translateY(-60%);opacity:0}20%{opacity:1}100%{transform:translateY(0);opacity:1}}
         @keyframes rankFlash{0%,100%{border-color:rgba(52,211,153,0.2)}40%{border-color:rgba(52,211,153,0.8);}}
         @keyframes releaseGlow{0%,100%{box-shadow:0 0 0 0 rgba(212,168,67,0)}50%{box-shadow:0 0 18px 4px rgba(212,168,67,0.35)}}
+        @keyframes refundGlow{0%,100%{box-shadow:0 0 0 0 rgba(45,212,191,0)}50%{box-shadow:0 0 22px 5px rgba(45,212,191,0.4)}}
         @keyframes releasePing{0%{transform:scale(1);opacity:0.8}100%{transform:scale(2.2);opacity:0}}
       `}</style>
     </div>
@@ -1902,11 +1903,11 @@ function NotificationBell(){
     </div>
   );
 }
-function Sparkler({width=120,height=40,intervalMs=2800,particleCount=18}){
+function Sparkler({width=120,height=40,intervalMs=2800,particleCount=18,colors}){
   const canvasRef=useRef(null);
   const particlesRef=useRef([]);
   const rafRef=useRef(null);
-  const COLORS=['#d4a843','#fbbf24','#ffffff','#f59e0b','#fde68a','#fcd34d','#fffbeb'];
+  const COLORS=colors||['#d4a843','#fbbf24','#ffffff','#f59e0b','#fde68a','#fcd34d','#fffbeb'];
 
   function spawnBurst(canvas){
     const w=canvas.width,h=canvas.height;
@@ -2442,12 +2443,12 @@ function RefundBanner({films,onGo}){
     <div style={{display:"flex",flexDirection:"column",gap:8,padding:"4px 0 14px",animation:"fadeSlideUp 0.5s ease-out both"}}>
       {live.map(r=>{
         return(
-          <div key={r.id} onClick={onGo} role="button" style={{position:"relative",overflow:"hidden",cursor:"pointer",textAlign:"center",padding:"16px 18px",borderRadius:12,background:"#1a1408",border:"1px solid #d4a843",animation:"releaseGlow 2.5s ease-in-out infinite"}}>
-            <span style={{position:"absolute",inset:0,pointerEvents:"none"}}><Sparkler width={600} height={80} particleCount={28} intervalMs={2000}/></span>
+          <div key={r.id} onClick={onGo} role="button" style={{position:"relative",overflow:"hidden",cursor:"pointer",textAlign:"center",padding:"16px 18px",borderRadius:12,background:"#06191a",border:"1px solid #2dd4bf",animation:"refundGlow 2.5s ease-in-out infinite"}}>
+            <span style={{position:"absolute",inset:0,pointerEvents:"none"}}><Sparkler width={600} height={80} particleCount={28} intervalMs={2000} colors={['#2dd4bf','#5eead4','#ffffff','#14b8a6','#99f6e4','#67e8f9','#ecfeff']}/></span>
             <div style={{position:"relative",zIndex:1}}>
-              <div style={{fontSize:10,fontWeight:800,letterSpacing:"0.2em",color:"#a07c2e",marginBottom:4}}>FILM REFUNDED · UP FOR GRABS</div>
-              <div style={{fontSize:18,fontWeight:900,color:"#d4a843",lineHeight:1.25}}>{r.film_title||r.imdb_id} is back on the market</div>
-              <div style={{fontSize:12,color:"#c9b27a",marginTop:5}}>{r.team_name} refunded it (${r.original_bid}M bid, ${r.credit_amount}M credited). Anyone can bid on it in Acquisitions.</div>
+              <div style={{fontSize:10,fontWeight:800,letterSpacing:"0.2em",color:"#2a8f84",marginBottom:4}}>FILM REFUNDED</div>
+              <div style={{fontSize:20,fontWeight:900,color:"#5eead4",lineHeight:1.25}}>{r.film_title||r.imdb_id} is UP FOR GRABS</div>
+              <div style={{fontSize:12,color:"#8fd3cb",marginTop:5}}>{r.team_name} refunded it (${r.original_bid}M bid, ${r.credit_amount}M credited). Anyone can bid on it in Acquisitions.</div>
             </div>
           </div>
         );
