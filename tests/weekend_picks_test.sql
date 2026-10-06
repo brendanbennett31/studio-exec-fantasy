@@ -75,7 +75,7 @@ begin
   if not ((st->>'enabled')::boolean and st->'week'->>'phase' = 'open' and jsonb_typeof(st->'mine') = 'null') then raise exception 'FAIL: state: enabled, phase open, no submission yet'; end if; log := log || 'ok - state: enabled, phase open, no submission yet' || E'\n';
   select count(*) into n from public.weekend_pick_pool(L);
   if not (n > 0) then raise exception 'FAIL: pool is non-empty'; end if; log := log || 'ok - pool is non-empty' || E'\n';
-  if not (not exists (select 1 from public.weekend_pick_pool(L) p where p.release_date <= (now() at time zone 'America/Los_Angeles')::date or p.release_date > date '2026-12-31') and not exists (select 1 from public.weekend_pick_pool(L) p where p.imdb_id in (fr, f27))) then raise exception 'FAIL: pool only has unreleased films within the 2026 pool, no 2027, no released'; end if; log := log || 'ok - pool only has unreleased films within the 2026 pool, no 2027, no released' || E'\n';
+  if not (exists (select 1 from public.weekend_pick_pool(L) p where p.imdb_id = fr) and exists (select 1 from public.weekend_pick_pool(L) p where p.imdb_id = fs[1]) and not exists (select 1 from public.weekend_pick_pool(L) p where p.release_date > date '2026-12-31' or p.imdb_id = f27)) then raise exception 'FAIL: pool has upcoming and released films, no 2027'; end if; log := log || 'ok - pool has upcoming and already-released films but no 2027' || E'\n';
   -- submit + edit
   perform public.submit_weekend_picks(L, fs[1], fs[2], fs[3]);
   select public.weekend_picks_state(L) into st;
@@ -96,10 +96,10 @@ begin
   if ok then raise exception 'FAIL (no error raised): null slot rejected'; end if;
   if err not ilike '%all three%' then raise exception 'FAIL (wrong error "%"): null slot rejected', err; end if;
   log := log || 'ok - null slot rejected' || E'\n';
-  ok := false; begin perform public.submit_weekend_picks(L, fr, fs[1], fs[2]); ok := true; exception when others then err := sqlerrm; end;
-  if ok then raise exception 'FAIL (no error raised): already-released film rejected'; end if;
-  if err not ilike '%not eligible%' then raise exception 'FAIL (wrong error "%"): already-released film rejected', err; end if;
-  log := log || 'ok - already-released film rejected' || E'\n';
+  perform public.submit_weekend_picks(L, fr, fs[1], fs[2]);
+  select public.weekend_picks_state(L) into st;
+  if not (st->'mine'->'picks'->0->>'imdb_id' = fr) then raise exception 'FAIL: an already-released holdover can be picked'; end if; log := log || 'ok - an already-released holdover can be picked' || E'\n';
+  perform public.submit_weekend_picks(L, fs[3], fs[1], fs[2]);
   ok := false; begin perform public.submit_weekend_picks(L, f27, fs[1], fs[2]); ok := true; exception when others then err := sqlerrm; end;
   if ok then raise exception 'FAIL (no error raised): 2027 film rejected'; end if;
   if err not ilike '%not eligible%' then raise exception 'FAIL (wrong error "%"): 2027 film rejected', err; end if;

@@ -236,8 +236,10 @@ grant execute on function public.league_acquisitions_budgets(uuid) to authentica
 
 -- ── Client-facing RPCs ──────────────────────────────────────────────────────
 
--- Films a player can put in the three boxes: in the Universe, not yet
--- released (strictly after today in PT), and no later than the pool end.
+-- Films a player can put in the three boxes: any film in the Universe
+-- released (or releasing) no later than the pool end. Already-released films
+-- are included on purpose -- holdovers routinely stay in the weekend top 3 for
+-- weeks, so excluding them could make a win impossible.
 create or replace function public.weekend_pick_pool(p_league_id uuid)
 returns table(imdb_id text, title text, release_date date)
 language plpgsql
@@ -247,7 +249,6 @@ set search_path = public
 as $$
 declare
   v_end date;
-  v_today date := (now() at time zone 'America/Los_Angeles')::date;
 begin
   if not public.is_league_member(p_league_id, auth.uid()) then
     raise exception 'Not a member of this league';
@@ -259,7 +260,7 @@ begin
   return query
     select uf.imdb_id, uf.title, uf.release_date
     from universe_films uf
-    where uf.imdb_id is not null and uf.release_date > v_today and uf.release_date <= v_end
+    where uf.imdb_id is not null and uf.release_date <= v_end
     order by uf.release_date, uf.title;
 end;
 $$;
@@ -377,7 +378,6 @@ as $$
 declare
   v_week public.weekend_pick_weeks;
   v_end date;
-  v_today date := (now() at time zone 'America/Los_Angeles')::date;
   v_id text;
 begin
   if not public.is_league_member(p_league_id, auth.uid()) then
@@ -405,9 +405,9 @@ begin
   foreach v_id in array array[p_pick1, p_pick2, p_pick3] loop
     if not exists (
       select 1 from universe_films uf
-      where uf.imdb_id = v_id and uf.release_date > v_today and uf.release_date <= v_end
+      where uf.imdb_id = v_id and uf.release_date <= v_end
     ) then
-      raise exception 'One of those films is not eligible (it has to be an unreleased film in this league''s pool)';
+      raise exception 'One of those films is not eligible (it has to be a film in this league''s pool)';
     end if;
   end loop;
 

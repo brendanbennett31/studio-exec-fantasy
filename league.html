@@ -4412,7 +4412,12 @@ function WeekendFilmPicker({label,value,onChange,pool,takenIds,disabled}){
   function norm(t){return (t||"").toLowerCase().replace(/^(the |a |an )/,"").replace(/[^a-z0-9]+/g," ").trim();}
   const matches=useMemo(()=>{
     const n=norm(q);
-    return pool.filter(f=>!takenIds.includes(f.imdb_id)&&(!n||norm(f.title).includes(n))).slice(0,40);
+    // Upcoming films first (soonest first), then already-released holdovers (newest first).
+    const today=new Date().toISOString().slice(0,10);
+    const rank=f=>f.release_date>today?0:1;
+    return pool.filter(f=>!takenIds.includes(f.imdb_id)&&(!n||norm(f.title).includes(n)))
+      .sort((a,b)=>rank(a)-rank(b)||(rank(a)===0?a.release_date.localeCompare(b.release_date):b.release_date.localeCompare(a.release_date)))
+      .slice(0,40);
   },[q,pool,takenIds]);
   return(
     <div style={{position:"relative",marginBottom:12}}>
@@ -4425,17 +4430,17 @@ function WeekendFilmPicker({label,value,onChange,pool,takenIds,disabled}){
       ):(
         <>
           <input value={q} disabled={disabled} onChange={e=>setQ(e.target.value)} onFocus={()=>setFocus(true)} onBlur={()=>setTimeout(()=>setFocus(false),150)}
-            placeholder="Search unreleased films…"
+            placeholder="Search films…"
             style={{width:"100%",padding:"9px 12px",borderRadius:7,border:"1px solid #2a2a3a",background:"#0e0e16",color:"#e8e8f0",fontSize:13,boxSizing:"border-box"}}/>
           {focus&&(
             <div style={{position:"absolute",left:0,right:0,zIndex:20,maxHeight:200,overflowY:"auto",background:"#0e0e16",border:"1px solid #2a2a3a",borderRadius:7,marginTop:2}}>
               {matches.map(f=>(
                 <div key={f.imdb_id} onMouseDown={e=>{e.preventDefault();onChange(f);setQ("");}} style={{padding:"8px 12px",fontSize:13,cursor:"pointer",color:"#e8e8f0",borderBottom:"1px solid #1a1a28",display:"flex",justifyContent:"space-between",gap:10}}
                   onMouseEnter={e=>e.currentTarget.style.background="#1a1a28"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
-                  <span>{f.title}</span><span style={{color:"#6a6a7e",fontSize:11,fontFamily:"monospace"}}>{f.release_date}</span>
+                  <span>{f.title}</span><span style={{color:"#6a6a7e",fontSize:11,fontFamily:"monospace"}}>{f.release_date>new Date().toISOString().slice(0,10)?f.release_date:"in theaters · "+f.release_date}</span>
                 </div>
               ))}
-              {matches.length===0&&<div style={{padding:"10px 12px",fontSize:12,color:"#6a6a7e"}}>No eligible films match.</div>}
+              {matches.length===0&&<div style={{padding:"10px 12px",fontSize:12,color:"#6a6a7e"}}>No films match.</div>}
             </div>
           )}
         </>
@@ -4586,7 +4591,7 @@ function WeekendPicksTab({leagueContext,userMembership}){
       {showForm&&(
         <div style={card}>
           <div style={heading}>{state.mine?"Edit your picks":"Submit your picks"}</div>
-          {pool.length===0&&<div style={{fontSize:12,color:"#f59e0b",marginBottom:10}}>No eligible unreleased films are available right now.</div>}
+          {pool.length===0&&<div style={{fontSize:12,color:"#f59e0b",marginBottom:10}}>No eligible films are available right now.</div>}
           {["#1 — Top box office","#2","#3"].map((label,i)=>(
             <WeekendFilmPicker key={i} label={label} value={sel[i]} pool={pool} takenIds={takenIds}
               onChange={f=>setSel(prev=>prev.map((x,j)=>j===i?f:x))}/>
@@ -4595,7 +4600,7 @@ function WeekendPicksTab({leagueContext,userMembership}){
             {saving?"Saving…":state.mine?"Save changes":"Lock in my picks"}
           </button>
           {state.mine&&<button onClick={()=>{setEditing(false);setMsg(null);}} style={{marginLeft:10,background:"none",border:"none",color:"#6a6a7e",cursor:"pointer",fontSize:12}}>Cancel</button>}
-          <div style={{fontSize:11,color:"#6a6a7e",marginTop:10}}>Only films that haven't been released yet are available.</div>
+          <div style={{fontSize:11,color:"#6a6a7e",marginTop:10}}>Upcoming films and already-released holdovers are both allowed -- a film can stay #1 for weeks.</div>
         </div>
       )}
 
