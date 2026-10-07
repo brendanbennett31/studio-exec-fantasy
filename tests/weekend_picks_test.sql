@@ -23,7 +23,7 @@ end $f$;
 do $test$
 declare
   ids uuid[]; L uuid; A uuid; B uuid; X uuid := gen_random_uuid();
-  fs text[]; fr text; f27 text;
+  fs text[]; ft text[]; fr text; frt text; f27 text;
   st jsonb; n int; n_members int;
   bud0 numeric; bud1 numeric;
   ok boolean; err text;
@@ -47,7 +47,9 @@ begin
     where imdb_id is not null and release_date > (now() at time zone 'America/Los_Angeles')::date and release_date <= date '2026-12-31'
     order by release_date, imdb_id limit 6) x;
   if coalesce(array_length(fs,1),0) < 6 then raise exception 'FAIL: need 6 unreleased 2026 films in universe_films'; end if;
+  select array_agg((select title from universe_films where imdb_id = x.id) order by x.ord) into ft from unnest(fs) with ordinality as x(id, ord);
   select imdb_id into fr from universe_films where imdb_id is not null and release_date < current_date - 30 limit 1;
+  select title into frt from universe_films where imdb_id = fr;
   select imdb_id into f27 from universe_films where imdb_id is not null and release_date >= date '2027-01-01' limit 1;
   select count(*) into n from weekend_pick_weeks where league_id <> L;
   if n <> 0 then raise exception 'FAIL: unexpected weekend_pick_weeks rows outside the ALPHA league before the test (%)', n; end if;
@@ -77,39 +79,39 @@ begin
   if not (n > 0) then raise exception 'FAIL: pool is non-empty'; end if; log := log || 'ok - pool is non-empty' || E'\n';
   if not (exists (select 1 from public.weekend_pick_pool(L) p where p.imdb_id = fr) and exists (select 1 from public.weekend_pick_pool(L) p where p.imdb_id = fs[1]) and not exists (select 1 from public.weekend_pick_pool(L) p where p.release_date > date '2026-12-31' or p.imdb_id = f27)) then raise exception 'FAIL: pool has upcoming and released films, no 2027'; end if; log := log || 'ok - pool has upcoming and already-released films but no 2027' || E'\n';
   -- submit + edit
-  perform public.submit_weekend_picks(L, fs[1], fs[2], fs[3]);
+  perform public.submit_weekend_picks(L, ft[1], ft[2], ft[3]);
   select public.weekend_picks_state(L) into st;
   if not (st->'mine'->'picks'->0->>'imdb_id' = fs[1] and st->'mine'->'picks'->1->>'imdb_id' = fs[2] and st->'mine'->'picks'->2->>'imdb_id' = fs[3]) then raise exception 'FAIL: submitted picks come back in order'; end if; log := log || 'ok - submitted picks come back in order' || E'\n';
-  perform public.submit_weekend_picks(L, fs[3], fs[1], fs[2]);
+  perform public.submit_weekend_picks(L, ft[3], ft[1], ft[2]);
   select public.weekend_picks_state(L) into st;
   if not (st->'mine'->'picks'->0->>'imdb_id' = fs[3] and st->'mine'->'picks'->2->>'imdb_id' = fs[2]) then raise exception 'FAIL: editing replaces the picks (new order)'; end if; log := log || 'ok - editing replaces the picks (new order)' || E'\n';
   -- rejections
-  ok := false; begin perform public.submit_weekend_picks(L, fs[1], fs[1], fs[2]); ok := true; exception when others then err := sqlerrm; end;
+  ok := false; begin perform public.submit_weekend_picks(L, ft[1], ft[1], ft[2]); ok := true; exception when others then err := sqlerrm; end;
   if ok then raise exception 'FAIL (no error raised): duplicate film rejected'; end if;
   if err not ilike '%different film%' then raise exception 'FAIL (wrong error "%"): duplicate film rejected', err; end if;
   log := log || 'ok - duplicate film rejected' || E'\n';
-  ok := false; begin perform public.submit_weekend_picks(L, fs[1], '', fs[2]); ok := true; exception when others then err := sqlerrm; end;
+  ok := false; begin perform public.submit_weekend_picks(L, ft[1], '', ft[2]); ok := true; exception when others then err := sqlerrm; end;
   if ok then raise exception 'FAIL (no error raised): blank slot rejected'; end if;
   if err not ilike '%all three%' then raise exception 'FAIL (wrong error "%"): blank slot rejected', err; end if;
   log := log || 'ok - blank slot rejected' || E'\n';
-  ok := false; begin perform public.submit_weekend_picks(L, fs[1], null, fs[2]); ok := true; exception when others then err := sqlerrm; end;
+  ok := false; begin perform public.submit_weekend_picks(L, ft[1], null, ft[2]); ok := true; exception when others then err := sqlerrm; end;
   if ok then raise exception 'FAIL (no error raised): null slot rejected'; end if;
   if err not ilike '%all three%' then raise exception 'FAIL (wrong error "%"): null slot rejected', err; end if;
   log := log || 'ok - null slot rejected' || E'\n';
-  perform public.submit_weekend_picks(L, fr, fs[1], fs[2]);
+  perform public.submit_weekend_picks(L, frt, ft[1], ft[2]);
   select public.weekend_picks_state(L) into st;
   if not (st->'mine'->'picks'->0->>'imdb_id' = fr) then raise exception 'FAIL: an already-released holdover can be picked'; end if; log := log || 'ok - an already-released holdover can be picked' || E'\n';
-  perform public.submit_weekend_picks(L, fs[3], fs[1], fs[2]);
-  ok := false; begin perform public.submit_weekend_picks(L, f27, fs[1], fs[2]); ok := true; exception when others then err := sqlerrm; end;
-  if ok then raise exception 'FAIL (no error raised): 2027 film rejected'; end if;
-  if err not ilike '%not eligible%' then raise exception 'FAIL (wrong error "%"): 2027 film rejected', err; end if;
-  log := log || 'ok - 2027 film rejected' || E'\n';
-  ok := false; begin perform public.submit_weekend_picks(L, 'tt0000000', fs[1], fs[2]); ok := true; exception when others then err := sqlerrm; end;
-  if ok then raise exception 'FAIL (no error raised): unknown film rejected'; end if;
-  if err not ilike '%not eligible%' then raise exception 'FAIL (wrong error "%"): unknown film rejected', err; end if;
-  log := log || 'ok - unknown film rejected' || E'\n';
+  -- free text: a title that is not in the Universe at all is fine
+  perform public.submit_weekend_picks(L, 'Other Mommy', ft[1], ft[2]);
+  select public.weekend_picks_state(L) into st;
+  if not (st->'mine'->'picks'->0->>'title' = 'Other Mommy' and jsonb_typeof(st->'mine'->'picks'->0->'imdb_id') = 'null') then raise exception 'FAIL: free-text title outside the Universe is accepted as typed'; end if; log := log || 'ok - free-text title outside the Universe is accepted as typed' || E'\n';
+  ok := false; begin perform public.submit_weekend_picks(L, 'the OTHER mommy!', ' other MOMMY ', ft[2]); ok := true; exception when others then err := sqlerrm; end;
+  if ok or err not ilike '%different film%' then raise exception 'FAIL: case/punctuation variants count as the same film (%)', err; end if; log := log || 'ok - case/punctuation variants count as the same film' || E'\n';
+  ok := false; begin perform public.submit_weekend_picks(L, ft[1], repeat('x', 200), ft[2]); ok := true; exception when others then err := sqlerrm; end;
+  if ok or err not ilike '%too long%' then raise exception 'FAIL: over-long title rejected (%)', err; end if; log := log || 'ok - over-long title rejected' || E'\n';
+  perform public.submit_weekend_picks(L, ft[3], ft[1], ft[2]);
   reset role; perform set_config('request.jwt.claims', json_build_object('sub', (X)::text, 'role', 'authenticated')::text, true); set local role authenticated;
-  ok := false; begin perform public.submit_weekend_picks(L, fs[1], fs[2], fs[3]); ok := true; exception when others then err := sqlerrm; end;
+  ok := false; begin perform public.submit_weekend_picks(L, ft[1], ft[2], ft[3]); ok := true; exception when others then err := sqlerrm; end;
   if ok then raise exception 'FAIL (no error raised): non-member cannot submit'; end if;
   if err not ilike '%not a member%' then raise exception 'FAIL (wrong error "%"): non-member cannot submit', err; end if;
   log := log || 'ok - non-member cannot submit' || E'\n';
@@ -118,7 +120,7 @@ begin
   if err not ilike '%not a member%' then raise exception 'FAIL (wrong error "%"): non-member cannot read state', err; end if;
   log := log || 'ok - non-member cannot read state' || E'\n';
   reset role; set local role anon;
-  ok := false; begin perform public.submit_weekend_picks(L, fs[1], fs[2], fs[3]); ok := true; exception when others then err := sqlerrm; end;
+  ok := false; begin perform public.submit_weekend_picks(L, ft[1], ft[2], ft[3]); ok := true; exception when others then err := sqlerrm; end;
   if ok then raise exception 'FAIL (no error raised): anon cannot call submit'; end if;
   if err not ilike '%permission denied%' then raise exception 'FAIL (wrong error "%"): anon cannot call submit', err; end if;
   log := log || 'ok - anon cannot call submit' || E'\n';
@@ -142,12 +144,12 @@ begin
   if ok then raise exception 'FAIL (no error raised): authenticated cannot write weekend_picks directly'; end if;
   if err not ilike '%permission denied%' then raise exception 'FAIL (wrong error "%"): authenticated cannot write weekend_picks directly', err; end if;
   log := log || 'ok - authenticated cannot write weekend_picks directly' || E'\n';
-  perform public.submit_weekend_picks(L, fs[3], fs[1], fs[4]);
+  perform public.submit_weekend_picks(L, ft[3], ft[1], ft[4]);
   ok := false; begin perform public.admin_close_weekend_window(L); ok := true; exception when others then err := sqlerrm; end;
   if ok then raise exception 'FAIL (no error raised): non-admin cannot close the window'; end if;
   if err not ilike '%admin%' then raise exception 'FAIL (wrong error "%"): non-admin cannot close the window', err; end if;
   log := log || 'ok - non-admin cannot close the window' || E'\n';
-  ok := false; begin perform public.admin_resolve_weekend_picks(L, array[fs[1],fs[2],fs[3]]); ok := true; exception when others then err := sqlerrm; end;
+  ok := false; begin perform public.admin_resolve_weekend_picks(L, array[ft[1],ft[2],ft[3]]); ok := true; exception when others then err := sqlerrm; end;
   if ok then raise exception 'FAIL (no error raised): non-admin cannot resolve'; end if;
   if err not ilike '%admin%' then raise exception 'FAIL (wrong error "%"): non-admin cannot resolve', err; end if;
   log := log || 'ok - non-admin cannot resolve' || E'\n';
@@ -156,7 +158,7 @@ begin
   if err not ilike '%admin%' then raise exception 'FAIL (wrong error "%"): non-admin cannot reset', err; end if;
   log := log || 'ok - non-admin cannot reset' || E'\n';
   reset role; perform set_config('request.jwt.claims', json_build_object('sub', (A)::text, 'role', 'authenticated')::text, true); set local role authenticated;
-  ok := false; begin perform public.admin_resolve_weekend_picks(L, array[fs[1],fs[2],fs[3]]); ok := true; exception when others then err := sqlerrm; end;
+  ok := false; begin perform public.admin_resolve_weekend_picks(L, array[ft[1],ft[2],ft[3]]); ok := true; exception when others then err := sqlerrm; end;
   if ok then raise exception 'FAIL (no error raised): admin cannot resolve before the window has locked'; end if;
   if err not ilike '%no locked weekend%' then raise exception 'FAIL (wrong error "%"): admin cannot resolve before the window has locked', err; end if;
   log := log || 'ok - admin cannot resolve before the window has locked' || E'\n';
@@ -164,12 +166,12 @@ begin
   select public.weekend_picks_state(L) into st;
   if not (st->'week'->>'phase' = 'locked' and jsonb_array_length(st->'picks') = 2) then raise exception 'FAIL: after close: phase locked, both submissions visible'; end if; log := log || 'ok - after close: phase locked, both submissions visible' || E'\n';
   if not (jsonb_array_length(st->'missing') = n_members - 2) then raise exception 'FAIL: after close: missing = everyone who has not submitted'; end if; log := log || 'ok - after close: missing = everyone who has not submitted' || E'\n';
-  ok := false; begin perform public.submit_weekend_picks(L, fs[1], fs[2], fs[3]); ok := true; exception when others then err := sqlerrm; end;
+  ok := false; begin perform public.submit_weekend_picks(L, ft[1], ft[2], ft[3]); ok := true; exception when others then err := sqlerrm; end;
   if ok then raise exception 'FAIL (no error raised): submit after close rejected (admin)'; end if;
   if err not ilike '%closed%' then raise exception 'FAIL (wrong error "%"): submit after close rejected (admin)', err; end if;
   log := log || 'ok - submit after close rejected (admin)' || E'\n';
   reset role; perform set_config('request.jwt.claims', json_build_object('sub', (B)::text, 'role', 'authenticated')::text, true); set local role authenticated;
-  ok := false; begin perform public.submit_weekend_picks(L, fs[1], fs[2], fs[3]); ok := true; exception when others then err := sqlerrm; end;
+  ok := false; begin perform public.submit_weekend_picks(L, ft[1], ft[2], ft[3]); ok := true; exception when others then err := sqlerrm; end;
   if ok then raise exception 'FAIL (no error raised): submit after close rejected (member)'; end if;
   if err not ilike '%closed%' then raise exception 'FAIL (wrong error "%"): submit after close rejected (member)', err; end if;
   log := log || 'ok - submit after close rejected (member)' || E'\n';
@@ -220,23 +222,24 @@ begin
   if not (not exists (select 1 from public.league_acquisitions_budgets(L) b join league_members lm on lm.league_id = L and lm.team_name = b.team_name where b.remaining <> public.acq_remaining_budget(L, lm.user_id))) then raise exception 'FAIL: league_acquisitions_budgets.remaining == acq_remaining_budget for every member (incl. the new credit)'; end if; log := log || 'ok - league_acquisitions_budgets.remaining == acq_remaining_budget for every member (incl. the new credit)' || E'\n';
   -- admin override / correction
   reset role; perform set_config('request.jwt.claims', json_build_object('sub', (A)::text, 'role', 'authenticated')::text, true); set local role authenticated;
-  ok := false; begin perform public.admin_resolve_weekend_picks(L, array[fs[1],fs[2]]); ok := true; exception when others then err := sqlerrm; end;
+  ok := false; begin perform public.admin_resolve_weekend_picks(L, array[ft[1],ft[2]]); ok := true; exception when others then err := sqlerrm; end;
   if ok then raise exception 'FAIL (no error raised): admin resolve rejects wrong-size result'; end if;
   if err not ilike '%three%' then raise exception 'FAIL (wrong error "%"): admin resolve rejects wrong-size result', err; end if;
   log := log || 'ok - admin resolve rejects wrong-size result' || E'\n';
-  ok := false; begin perform public.admin_resolve_weekend_picks(L, array[fs[1],fs[2],'tt0000000']); ok := true; exception when others then err := sqlerrm; end;
-  if ok then raise exception 'FAIL (no error raised): admin resolve rejects unknown film'; end if;
-  if err not ilike '%unknown film%' then raise exception 'FAIL (wrong error "%"): admin resolve rejects unknown film', err; end if;
-  log := log || 'ok - admin resolve rejects unknown film' || E'\n';
-  perform public.admin_resolve_weekend_picks(L, array[fs[3],fs[1],fs[4]]);
+  perform public.admin_resolve_weekend_picks(L, array[ft[3],ft[1],ft[4]]);
   reset role;
   if not ((select is_winner from weekend_picks where week_id = wk.id and user_id = B) is true and (select is_winner from weekend_picks where week_id = wk.id and user_id = A) is false and public.weekend_pick_credits(L, A) = 0 and public.weekend_pick_credits(L, B) = 1 and (select resolved_by from weekend_pick_weeks where id = wk.id) = 'admin') then raise exception 'FAIL: admin correction re-scores: B now wins, A no longer does, credits follow'; end if; log := log || 'ok - admin correction re-scores: B now wins, A no longer does, credits follow' || E'\n';
   -- multiple winners / zero winners
-  update weekend_picks set pick1 = fs[1], pick2 = fs[2], pick3 = fs[3] where week_id = wk.id;
+  update weekend_picks set pick1 = fs[1], pick2 = fs[2], pick3 = fs[3], pick1_title = ft[1], pick2_title = ft[2], pick3_title = ft[3] where week_id = wk.id;
   perform public.weekend_apply_results(wk.id, array[fs[1],fs[2],fs[3]], array['a','b','c'], 'admin');
   if not ((select count(*) from weekend_picks where week_id = wk.id and is_winner) = 2) then raise exception 'FAIL: multiple winners are all credited'; end if; log := log || 'ok - multiple winners are all credited' || E'\n';
   perform public.weekend_apply_results(wk.id, array[fs[5],fs[6],fs[4]], array['a','b','c'], 'admin');
   if not ((select count(*) from weekend_picks where week_id = wk.id and is_winner) = 0 and public.weekend_pick_credits(L, A) = 0) then raise exception 'FAIL: zero winners is fine'; end if; log := log || 'ok - zero winners is fine' || E'\n';
+  -- typed title outside the Universe scores by normalised title ("Other Mommy" case)
+  update weekend_picks set pick1 = null, pick1_title = 'Other Mommy' where week_id = wk.id and user_id = A;
+  perform public.weekend_apply_results(wk.id, array['', fs[2], fs[3]], array['other mommy', 'x', 'y'], 'cron');
+  if not ((select is_winner from weekend_picks where week_id = wk.id and user_id = A) is true) then raise exception 'FAIL: a typed non-Universe title wins by title match'; end if; log := log || 'ok - a typed non-Universe title wins by title match' || E'\n';
+  update weekend_picks set pick1 = fs[1], pick1_title = ft[1] where week_id = wk.id and user_id = A;
   perform public.weekend_apply_results(wk.id, array['', fs[2], fs[3]], array['?','b','c'], 'admin');
   if not ((select count(*) from weekend_picks where week_id = wk.id and is_winner) = 0) then raise exception 'FAIL: an unknown top-3 film (empty slot) never matches'; end if; log := log || 'ok - an unknown top-3 film (empty slot) never matches' || E'\n';
   ok := false; begin update weekend_picks set pick2 = pick1 where week_id = wk.id; ok := true; exception when others then err := sqlerrm; end;
@@ -255,7 +258,7 @@ begin
   reset role;
   if not (st->'week'->>'phase' = 'open' and jsonb_typeof(st->'mine') = 'null' and (select count(*) from weekend_picks where week_id = wk.id) = 0 and (select resolved_at is null and closes_at = natural_closes_at from weekend_pick_weeks where id = wk.id)) then raise exception 'FAIL: reset: picks gone, result cleared, window reopened'; end if; log := log || 'ok - reset: picks gone, result cleared, window reopened' || E'\n';
   reset role; perform set_config('request.jwt.claims', json_build_object('sub', (B)::text, 'role', 'authenticated')::text, true); set local role authenticated;
-  perform public.submit_weekend_picks(L, fs[1], fs[2], fs[3]);
+  perform public.submit_weekend_picks(L, ft[1], ft[2], ft[3]);
   reset role;
   if not ((select count(*) from weekend_picks where week_id = wk.id) = 1) then raise exception 'FAIL: members can submit again after a reset'; end if; log := log || 'ok - members can submit again after a reset' || E'\n';
   -- 2026 league isolation

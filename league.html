@@ -4508,46 +4508,20 @@ class WeekendErrorBoundary extends React.Component{
   }
 }
 
-function WeekendFilmPicker({label,value,onChange,pool,takenIds,disabled,placeholder}){
-  const[q,setQ]=useState("");
-  const[focus,setFocus]=useState(false);
-  function norm(t){return (t||"").toLowerCase().replace(/^(the |a |an )/,"").replace(/[^a-z0-9]+/g," ").trim();}
-  const matches=useMemo(()=>{
-    const n=norm(q);
-    // Upcoming films first (soonest first), then already-released holdovers (newest first).
-    const today=new Date().toISOString().slice(0,10);
-    // release_date can be null (TBA films in the admin list) -- treat as "" so sorting never throws.
-    const rd=f=>f.release_date||"";
-    const rank=f=>rd(f)>today?0:1;
-    return pool.filter(f=>!takenIds.includes(f.imdb_id)&&(!n||norm(f.title).includes(n)))
-      .sort((a,b)=>rank(a)-rank(b)||(rank(a)===0?rd(a).localeCompare(rd(b)):rd(b).localeCompare(rd(a))))
-      .slice(0,40);
-  },[q,pool,takenIds]);
+// Plain fill-in-the-blank box. The Universe list is only offered as optional
+// autocomplete suggestions (native <datalist>) -- anything can be typed, e.g.
+// a film that isn't in the Universe at all.
+function WeekendFilmPicker({label,value,onChange,suggestions,disabled,placeholder,listId}){
   return(
-    <div style={{position:"relative",marginBottom:12,opacity:disabled?0.45:1,cursor:disabled?"not-allowed":"auto"}}>
+    <div style={{marginBottom:12,opacity:disabled?0.45:1,cursor:disabled?"not-allowed":"auto"}}>
       <div style={{fontSize:11,fontWeight:700,color:disabled?"#6a6a7e":"#d4a843",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>{label}</div>
-      {value?(
-        <div style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",borderRadius:7,border:"1px solid rgba(52,211,153,0.3)",background:"rgba(52,211,153,0.05)"}}>
-          <div style={{flex:1,fontSize:13,color:"#e8e8f0"}}>{value.title}</div>
-          {!disabled&&<button onClick={()=>{onChange(null);setQ("");}} style={{background:"none",border:"none",color:"#6a6a7e",cursor:"pointer",fontSize:12}}>Change</button>}
-        </div>
-      ):(
-        <>
-          <input value={q} disabled={disabled} onChange={e=>setQ(e.target.value)} onFocus={()=>setFocus(true)} onBlur={()=>setTimeout(()=>setFocus(false),150)}
-            placeholder={placeholder||"Search films…"}
-            style={{width:"100%",padding:"9px 12px",borderRadius:7,border:"1px solid #2a2a3a",background:disabled?"#14141c":"#0e0e16",color:"#e8e8f0",fontSize:13,boxSizing:"border-box",cursor:disabled?"not-allowed":"text"}}/>
-          {focus&&(
-            <div style={{position:"absolute",left:0,right:0,zIndex:20,maxHeight:200,overflowY:"auto",background:"#0e0e16",border:"1px solid #2a2a3a",borderRadius:7,marginTop:2}}>
-              {matches.map(f=>(
-                <div key={f.imdb_id} onMouseDown={e=>{e.preventDefault();onChange(f);setQ("");}} style={{padding:"8px 12px",fontSize:13,cursor:"pointer",color:"#e8e8f0",borderBottom:"1px solid #1a1a28",display:"flex",justifyContent:"space-between",gap:10}}
-                  onMouseEnter={e=>e.currentTarget.style.background="#1a1a28"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
-                  <span>{f.title}</span><span style={{color:"#6a6a7e",fontSize:11,fontFamily:"monospace"}}>{!f.release_date?"TBA":f.release_date>new Date().toISOString().slice(0,10)?f.release_date:"in theaters · "+f.release_date}</span>
-                </div>
-              ))}
-              {matches.length===0&&<div style={{padding:"10px 12px",fontSize:12,color:"#6a6a7e"}}>No films match.</div>}
-            </div>
-          )}
-        </>
+      <input value={value||""} disabled={disabled} onChange={e=>onChange(e.target.value)} list={disabled?undefined:listId}
+        placeholder={placeholder||"Type a film…"} maxLength={120} autoComplete="off"
+        style={{width:"100%",padding:"9px 12px",borderRadius:7,border:"1px solid #2a2a3a",background:disabled?"#14141c":"#0e0e16",color:"#e8e8f0",fontSize:13,boxSizing:"border-box",cursor:disabled?"not-allowed":"text"}}/>
+      {!disabled&&listId&&(
+        <datalist id={listId}>
+          {(suggestions||[]).map(t=><option key={t} value={t}/>)}
+        </datalist>
       )}
     </div>
   );
@@ -4562,10 +4536,10 @@ function WeekendPicksTab({leagueContext,userMembership}){
   const[msg,setMsg]=useState(null);
   const[saving,setSaving]=useState(false);
   const[editing,setEditing]=useState(false);
-  const[sel,setSel]=useState([null,null,null]);
+  const[sel,setSel]=useState(["","",""]);
   const[now,setNow]=useState(Date.now());
   const[adminFilms,setAdminFilms]=useState([]);
-  const[adminSel,setAdminSel]=useState([null,null,null]);
+  const[adminSel,setAdminSel]=useState(["","",""]);
   const[adminBusy,setAdminBusy]=useState(false);
   const stateRef=React.useRef(null);
 
@@ -4613,15 +4587,15 @@ function WeekendPicksTab({leagueContext,userMembership}){
 
   function startEditing(){
     const mine=state?.mine?.picks||[];
-    setSel([0,1,2].map(i=>mine[i]?{imdb_id:mine[i].imdb_id,title:mine[i].title}:null));
+    setSel([0,1,2].map(i=>mine[i]?mine[i].title:""));
     setEditing(true); setMsg(null);
   }
 
   async function submit(){
     setMsg(null);
-    if(sel.some(x=>!x)){ setMsg({text:"Pick a film for all three spots.",error:true}); return; }
+    if(sel.some(x=>!x.trim())){ setMsg({text:"Fill in a film for all three spots.",error:true}); return; }
     setSaving(true);
-    const {ok,data}=await callRpc("submit_weekend_picks",{p_league_id:LEAGUE_UUID,p_pick1:sel[0].imdb_id,p_pick2:sel[1].imdb_id,p_pick3:sel[2].imdb_id});
+    const {ok,data}=await callRpc("submit_weekend_picks",{p_league_id:LEAGUE_UUID,p_pick1:sel[0].trim(),p_pick2:sel[1].trim(),p_pick3:sel[2].trim()});
     setSaving(false);
     if(ok){ setMsg({text:"Picks locked in. You can edit them until the window closes.",error:false}); setEditing(false); load(); }
     else{ setMsg({text:data.message||"Submit failed",error:true}); load(); }
@@ -4631,7 +4605,7 @@ function WeekendPicksTab({leagueContext,userMembership}){
     setAdminBusy(true); setMsg(null);
     const {ok,data}=await callRpc(fn,args);
     setAdminBusy(false);
-    if(ok){ setMsg({text:okText,error:false}); setAdminSel([null,null,null]); await load(); }
+    if(ok){ setMsg({text:okText,error:false}); setAdminSel(["","",""]); await load(); }
     else setMsg({text:data.message||"Failed",error:true});
   }
 
@@ -4650,12 +4624,12 @@ function WeekendPicksTab({leagueContext,userMembership}){
   }
   const fmtDay=ms=>new Date(ms).toLocaleString("en-US",{weekday:"short",hour:"numeric",minute:"2-digit",timeZone:"America/Los_Angeles",timeZoneName:"short"});
   const fridayLabel=new Date(w.weekend_friday+"T12:00:00").toLocaleDateString("en-US",{month:"long",day:"numeric"});
-  const takenIds=sel.filter(Boolean).map(x=>x.imdb_id);
+  const poolTitles=[...new Set(pool.map(f=>f.title))];
+  const adminTitles=[...new Set(adminFilms.map(f=>f.title))];
   const showForm=phase==="open"&&(!state.mine||editing);
   const card={padding:18,borderRadius:10,background:"#111119",border:"1px solid #222233",marginBottom:20};
   const heading={fontSize:11,fontWeight:700,color:"#6a6a7e",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:12};
   const actual=w.actual||[];
-  const actualIds=actual.map(a=>a?.imdb_id);
 
   return(
     <div>
@@ -4692,16 +4666,15 @@ function WeekendPicksTab({leagueContext,userMembership}){
       {showForm&&(
         <div style={card}>
           <div style={heading}>{state.mine?"Edit your picks":"Submit your picks"}</div>
-          {pool.length===0&&<div style={{fontSize:12,color:"#f59e0b",marginBottom:10}}>No eligible films are available right now.</div>}
           {["#1 — Top box office","#2","#3"].map((label,i)=>(
-            <WeekendFilmPicker key={i} label={label} value={sel[i]} pool={pool} takenIds={takenIds}
-              onChange={f=>setSel(prev=>prev.map((x,j)=>j===i?f:x))}/>
+            <WeekendFilmPicker key={i} label={label} value={sel[i]} suggestions={poolTitles} listId={"weekend-pick-"+i}
+              onChange={v=>setSel(prev=>prev.map((x,j)=>j===i?v:x))}/>
           ))}
           <button onClick={submit} disabled={saving} style={{padding:"9px 20px",borderRadius:7,border:"none",background:"#d4a843",color:"#0d0d14",fontSize:12,fontWeight:700,cursor:"pointer",opacity:saving?0.7:1}}>
             {saving?"Saving…":state.mine?"Save changes":"Lock in my picks"}
           </button>
           {state.mine&&<button onClick={()=>{setEditing(false);setMsg(null);}} style={{marginLeft:10,background:"none",border:"none",color:"#6a6a7e",cursor:"pointer",fontSize:12}}>Cancel</button>}
-          <div style={{fontSize:11,color:"#6a6a7e",marginTop:10}}>Upcoming films and already-released holdovers are both allowed -- a film can stay #1 for weeks.</div>
+          <div style={{fontSize:11,color:"#6a6a7e",marginTop:10}}>Type any film. Suggestions are just a convenience.</div>
         </div>
       )}
 
@@ -4714,7 +4687,7 @@ function WeekendPicksTab({leagueContext,userMembership}){
           <div style={{...card,borderStyle:"dashed"}}>
             <div style={heading}>Next window — opens {fmtDay(opensNextMs)}</div>
             {["#1 — Top box office","#2","#3"].map((label,i)=>(
-              <WeekendFilmPicker key={i} label={label} value={null} pool={[]} takenIds={[]} disabled={true} placeholder="Not open yet"/>
+              <WeekendFilmPicker key={i} label={label} value="" disabled={true} placeholder="Not open yet"/>
             ))}
           </div>
           {phase==="resolved"&&(
@@ -4740,8 +4713,8 @@ function WeekendPicksTab({leagueContext,userMembership}){
                   {phase==="resolved"&&<span style={{fontSize:10,fontWeight:700,textTransform:"uppercase",color:p.is_winner?"#34d399":"#6a6a7e"}}>{p.is_winner?"Winner +$1M":"No points"}</span>}
                 </div>
                 {p.picks.map((f,i)=>(
-                  <div key={i} style={{fontSize:12,color:phase==="resolved"&&actualIds[i]&&actualIds[i]===f.imdb_id?"#34d399":"#8a8a9e",padding:"2px 0"}}>
-                    <span style={{color:"#d4a843",fontWeight:700,marginRight:8}}>#{i+1}</span>{f.title}{phase==="resolved"&&actualIds[i]&&actualIds[i]===f.imdb_id?" ✓":""}
+                  <div key={i} style={{fontSize:12,color:phase==="resolved"&&p.hits&&p.hits[i]?"#34d399":"#8a8a9e",padding:"2px 0"}}>
+                    <span style={{color:"#d4a843",fontWeight:700,marginRight:8}}>#{i+1}</span>{f.title}{phase==="resolved"&&p.hits&&p.hits[i]?" ✓":""}
                   </div>
                 ))}
               </div>
@@ -4773,11 +4746,11 @@ function WeekendPicksTab({leagueContext,userMembership}){
             <>
               <div style={{fontSize:11,color:"#8a8a9e",marginBottom:8}}>Declare the weekend result by hand (normally the Monday-evening cron does this from Box Office Mojo). Safe to re-run to correct it.</div>
               {["#1","#2","#3"].map((label,i)=>(
-                <WeekendFilmPicker key={i} label={label} value={adminSel[i]} pool={adminFilms} takenIds={adminSel.filter(Boolean).map(x=>x.imdb_id)}
-                  onChange={f=>setAdminSel(prev=>prev.map((x,j)=>j===i?f:x))}/>
+                <WeekendFilmPicker key={i} label={label} value={adminSel[i]} suggestions={adminTitles} listId={"weekend-admin-"+i}
+                  onChange={v=>setAdminSel(prev=>prev.map((x,j)=>j===i?v:x))}/>
               ))}
-              <button disabled={adminBusy||adminSel.some(x=>!x)} onClick={()=>adminCall("admin_resolve_weekend_picks",{p_league_id:LEAGUE_UUID,p_top3:adminSel.map(x=>x.imdb_id)},"Result applied.")}
-                style={{padding:"7px 16px",borderRadius:7,border:"none",background:"#d4a843",color:"#0d0d14",fontSize:12,fontWeight:700,cursor:"pointer",opacity:adminSel.some(x=>!x)?0.5:1}}>Apply result</button>
+              <button disabled={adminBusy||adminSel.some(x=>!x.trim())} onClick={()=>adminCall("admin_resolve_weekend_picks",{p_league_id:LEAGUE_UUID,p_top3:adminSel.map(x=>x.trim())},"Result applied.")}
+                style={{padding:"7px 16px",borderRadius:7,border:"none",background:"#d4a843",color:"#0d0d14",fontSize:12,fontWeight:700,cursor:"pointer",opacity:adminSel.some(x=>!x.trim())?0.5:1}}>Apply result</button>
             </>
           )}
         </div>
