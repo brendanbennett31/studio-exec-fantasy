@@ -4509,20 +4509,150 @@ class WeekendErrorBoundary extends React.Component{
 }
 
 // Plain fill-in-the-blank box. The Universe list is only offered as optional
-// autocomplete suggestions (native <datalist>) -- anything can be typed, e.g.
-// a film that isn't in the Universe at all.
-function WeekendFilmPicker({label,value,onChange,suggestions,disabled,placeholder,listId}){
+// autocomplete suggestions -- anything can be typed, e.g. a film that isn't in
+// the Universe at all. The suggestion list is our own dropdown anchored right
+// under the box (the browser's built-in <datalist> popup is positioned by the
+// browser and drifted off to the side). When nothing matches and onRequestFilm
+// is provided, an "Add film" button files a request for the admin to review.
+function WeekendFilmPicker({label,value,onChange,suggestions,disabled,placeholder,onRequestFilm}){
+  const[focus,setFocus]=useState(false);
+  const[reqOpen,setReqOpen]=useState(false);
+  const[reqTitle,setReqTitle]=useState("");
+  const[reqBusy,setReqBusy]=useState(false);
+  const[reqMsg,setReqMsg]=useState(null);
+  const norm=t=>(t||"").toLowerCase().replace(/^(the |a |an )/,"").replace(/[^a-z0-9]+/g," ").trim();
+  const typed=(value||"").trim();
+  const n=norm(typed);
+  const list=suggestions||[];
+  const matches=useMemo(()=>(n?list.filter(t=>norm(t).includes(n)):list).slice(0,8),[n,list]);
+  const exact=list.some(t=>norm(t)===n);
+  const showList=focus&&!disabled&&matches.length>0&&!(matches.length===1&&exact);
+  const noMatch=!disabled&&!!onRequestFilm&&typed.length>=2&&matches.length===0;
+
+  async function sendRequest(){
+    const t=reqTitle.trim();
+    if(t.length<2){ setReqMsg({text:"Type the film's name first.",error:true}); return; }
+    setReqBusy(true); setReqMsg(null);
+    const res=await onRequestFilm(t);
+    setReqBusy(false);
+    if(res.ok){
+      onChange(res.useTitle||t);
+      setReqMsg({text:res.text,error:false});
+      setReqOpen(false);
+    } else setReqMsg({text:res.text,error:true});
+  }
+
   return(
     <div style={{marginBottom:12,opacity:disabled?0.45:1,cursor:disabled?"not-allowed":"auto"}}>
       <div style={{fontSize:11,fontWeight:700,color:disabled?"#6a6a7e":"#d4a843",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>{label}</div>
-      <input value={value||""} disabled={disabled} onChange={e=>onChange(e.target.value)} list={disabled?undefined:listId}
-        placeholder={placeholder||"Type a film…"} maxLength={120} autoComplete="off"
-        style={{width:"100%",padding:"9px 12px",borderRadius:7,border:"1px solid #2a2a3a",background:disabled?"#14141c":"#0e0e16",color:"#e8e8f0",fontSize:13,boxSizing:"border-box",cursor:disabled?"not-allowed":"text"}}/>
-      {!disabled&&listId&&(
-        <datalist id={listId}>
-          {(suggestions||[]).map(t=><option key={t} value={t}/>)}
-        </datalist>
+      <div style={{position:"relative"}}>
+        <input value={value||""} disabled={disabled} onChange={e=>{onChange(e.target.value);setReqMsg(null);}}
+          onFocus={()=>setFocus(true)} onBlur={()=>setTimeout(()=>setFocus(false),150)}
+          placeholder={placeholder||"Type a film…"} maxLength={120} autoComplete="off"
+          style={{width:"100%",padding:"9px 12px",borderRadius:7,border:"1px solid #2a2a3a",background:disabled?"#14141c":"#0e0e16",color:"#e8e8f0",fontSize:13,boxSizing:"border-box",cursor:disabled?"not-allowed":"text"}}/>
+        {showList&&(
+          <div style={{position:"absolute",top:"100%",left:0,right:0,zIndex:30,marginTop:2,maxHeight:220,overflowY:"auto",background:"#0e0e16",border:"1px solid #2a2a3a",borderRadius:7,boxShadow:"0 8px 24px rgba(0,0,0,0.5)"}}>
+            {matches.map(t=>(
+              <div key={t} onMouseDown={e=>{e.preventDefault();onChange(t);setFocus(false);}}
+                style={{padding:"9px 12px",fontSize:13,color:"#e8e8f0",cursor:"pointer",borderBottom:"1px solid #1a1a28"}}
+                onMouseEnter={e=>e.currentTarget.style.background="#1a1a28"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>{t}</div>
+            ))}
+          </div>
+        )}
+      </div>
+      {noMatch&&!reqOpen&&(
+        <div style={{fontSize:11,color:"#8a8a9e",marginTop:6}}>
+          Not in our film list?{" "}
+          <button onClick={()=>{setReqTitle(typed);setReqOpen(true);setReqMsg(null);}} style={{background:"rgba(212,168,67,0.1)",border:"1px solid rgba(212,168,67,0.35)",borderRadius:5,color:"#d4a843",fontSize:11,fontWeight:700,padding:"2px 9px",cursor:"pointer"}}>Add film</button>
+        </div>
       )}
+      {reqOpen&&(
+        <div style={{marginTop:8,padding:12,borderRadius:8,background:"#0e0e16",border:"1px solid rgba(212,168,67,0.3)"}}>
+          <div style={{fontSize:11,color:"#8a8a9e",marginBottom:8,lineHeight:1.5}}>Type the film's name. We'll look it up and an admin will add it to the film list. You can still use it as your pick right now.</div>
+          <input value={reqTitle} onChange={e=>setReqTitle(e.target.value)} maxLength={120} placeholder="Film name"
+            style={{width:"100%",padding:"8px 10px",borderRadius:6,border:"1px solid #2a2a3a",background:"#14141c",color:"#e8e8f0",fontSize:13,boxSizing:"border-box",marginBottom:8}}/>
+          <div style={{display:"flex",gap:8,alignItems:"center"}}>
+            <button onClick={sendRequest} disabled={reqBusy} style={{padding:"6px 14px",borderRadius:6,border:"none",background:"#d4a843",color:"#0d0d14",fontSize:12,fontWeight:700,cursor:"pointer",opacity:reqBusy?0.7:1}}>{reqBusy?"Sending…":"Add film"}</button>
+            <button onClick={()=>{setReqOpen(false);setReqMsg(null);}} style={{background:"none",border:"none",color:"#6a6a7e",cursor:"pointer",fontSize:12}}>Cancel</button>
+          </div>
+        </div>
+      )}
+      {reqMsg&&<div style={{fontSize:11,marginTop:6,color:reqMsg.error?"#ef4444":"#34d399"}}>{reqMsg.text}</div>}
+    </div>
+  );
+}
+
+// Admin review of "add a film" requests (see migration 063 + Apps Script
+// processFilmRequests, which researches each request and emails the admin).
+function FilmRequestsAdmin({callRpc}){
+  const[reqs,setReqs]=useState(null);
+  const[busy,setBusy]=useState(null);
+  const[msg,setMsg]=useState(null);
+  const[dates,setDates]=useState({});
+  async function load(){
+    const r=await callRpc("list_film_add_requests",{p_league_id:LEAGUE_UUID});
+    if(r.ok) setReqs(r.data||[]); else setMsg({text:r.data?.message||"Couldn't load requests",error:true});
+  }
+  useEffect(()=>{ load(); },[]);
+  async function act(id,action,extra,okText){
+    setBusy(id); setMsg(null);
+    const r=await callRpc("resolve_film_add_request",{p_request_id:id,p_action:action,...(extra||{})});
+    setBusy(null);
+    if(r.ok){ setMsg({text:okText,error:false}); await load(); }
+    else setMsg({text:r.data?.message||"That didn't work",error:true});
+  }
+  const btn={padding:"5px 11px",borderRadius:6,border:"1px solid rgba(212,168,67,0.35)",background:"rgba(212,168,67,0.08)",color:"#d4a843",fontSize:11,fontWeight:700,cursor:"pointer"};
+  return(
+    <div style={{padding:16,borderRadius:10,background:"#0e0e16",border:"1px solid #222233",marginTop:16}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+        <div style={{fontSize:11,fontWeight:700,color:"#d4a843",textTransform:"uppercase",letterSpacing:"0.08em"}}>Admin: Film requests{reqs?` (${reqs.length})`:""}</div>
+        <button onClick={load} style={{background:"none",border:"none",color:"#6a6a7e",cursor:"pointer",fontSize:11}}>Refresh</button>
+      </div>
+      {msg&&<div style={{fontSize:12,marginBottom:10,color:msg.error?"#ef4444":"#34d399"}}>{msg.text}</div>}
+      {reqs&&reqs.length===0&&<div style={{fontSize:12,color:"#6a6a7e"}}>No pending requests.</div>}
+      {(reqs||[]).map(r=>{
+        const c=r.candidates;
+        return(
+          <div key={r.id} style={{padding:"12px 0",borderTop:"1px solid #1a1a28"}}>
+            <div style={{fontSize:14,fontWeight:700,color:"#e8e8f0"}}>{r.title}</div>
+            <div style={{fontSize:11,color:"#6a6a7e",marginBottom:8}}>requested by {r.requester_team||"a member"}{!r.researched_at&&" · looking it up… (refresh in a few minutes)"}</div>
+            {c&&c.universe&&c.universe.length>0&&(
+              <div style={{marginBottom:8}}>
+                <div style={{fontSize:10,fontWeight:700,color:"#8a8a9e",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:4}}>Possibly already in the film list</div>
+                {c.universe.map(u=>(
+                  <div key={u.imdb_id} style={{display:"flex",alignItems:"center",gap:8,padding:"3px 0",fontSize:12,color:"#c8c8d8"}}>
+                    <span style={{flex:1}}>{u.title}{u.release_date?` (${u.release_date})`:""}</span>
+                    <button disabled={busy===r.id} onClick={()=>act(r.id,"link",{p_imdb_id:u.imdb_id},`Linked to "${u.title}".`)} style={btn}>It's this one</button>
+                  </div>
+                ))}
+              </div>
+            )}
+            {c&&c.tmdb&&c.tmdb.length>0&&(
+              <div style={{marginBottom:8}}>
+                <div style={{fontSize:10,fontWeight:700,color:"#8a8a9e",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:4}}>TMDb matches</div>
+                {c.tmdb.map(t=>(
+                  <div key={t.tmdb_id} style={{padding:"4px 0"}}>
+                    <div style={{display:"flex",alignItems:"center",gap:8,fontSize:12,color:"#c8c8d8"}}>
+                      <span style={{flex:1}}>{t.title}{t.release_date?` (${t.release_date})`:" (no date)"}{t.runtime?` · ${t.runtime} min`:""}</span>
+                      {t.in_universe_title
+                        ?<button disabled={busy===r.id} onClick={()=>act(r.id,"link",{p_imdb_id:t.imdb_id},`Linked to "${t.in_universe_title}".`)} style={btn}>Already in list — link</button>
+                        :<button disabled={busy===r.id} onClick={()=>act(r.id,"add",{p_title:t.title,p_release_date:t.release_date||null,p_imdb_id:t.imdb_id||null},`Added "${t.title}" to the film list.`)} style={btn}>Add this one</button>}
+                    </div>
+                    {t.overview&&<div style={{fontSize:10,color:"#6a6a7e",marginTop:1}}>{t.overview}</div>}
+                  </div>
+                ))}
+              </div>
+            )}
+            {c&&(!c.tmdb||c.tmdb.length===0)&&<div style={{fontSize:11,color:"#f59e0b",marginBottom:8}}>No TMDb matches — might be a typo or too obscure.</div>}
+            <div style={{display:"flex",flexWrap:"wrap",alignItems:"center",gap:8}}>
+              <input type="date" value={dates[r.id]||""} onChange={e=>setDates(d=>({...d,[r.id]:e.target.value}))} title="Release date (optional)"
+                style={{padding:"4px 8px",borderRadius:6,border:"1px solid #2a2a3a",background:"#14141c",color:"#e8e8f0",fontSize:11}}/>
+              <button disabled={busy===r.id} onClick={()=>act(r.id,"add",{p_title:r.title,p_release_date:dates[r.id]||null,p_imdb_id:null},`Added "${r.title}" as typed.`)} style={btn}>Add as typed</button>
+              <button disabled={busy===r.id} onClick={()=>act(r.id,"reject",{},"Request rejected.")} style={{...btn,borderColor:"rgba(239,68,68,0.35)",background:"rgba(239,68,68,0.06)",color:"#ef4444"}}>Reject</button>
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -4609,6 +4739,14 @@ function WeekendPicksTab({leagueContext,userMembership}){
     else setMsg({text:data.message||"Failed",error:true});
   }
 
+  async function requestFilm(title){
+    const {ok,data}=await callRpc("request_film_add",{p_league_id:LEAGUE_UUID,p_title:title});
+    if(!ok) return {ok:false,text:data?.message||"Couldn't send that request"};
+    if(data.status==="exists") return {ok:true,useTitle:data.title,text:`"${data.title}" is already in the film list -- using that.`};
+    if(data.status==="already_requested") return {ok:true,text:"Someone already asked for that one -- it's waiting for review. You can still use it as your pick."};
+    return {ok:true,text:"Sent! An admin will review it. You can use it as your pick right now."};
+  }
+
   if(loading) return <div style={{padding:20,textAlign:"center",color:"#6a6a7e"}}>Loading Weekend Picks…</div>;
   if(loadErr) return <div style={{padding:20,textAlign:"center",color:"#ef4444",fontSize:13}}>{loadErr}</div>;
   if(!state?.enabled) return <div style={{padding:20,textAlign:"center",color:"#6a6a7e",fontSize:13}}>Weekend Picks isn't enabled for this league.</div>;
@@ -4667,7 +4805,7 @@ function WeekendPicksTab({leagueContext,userMembership}){
         <div style={card}>
           <div style={heading}>{state.mine?"Edit your picks":"Submit your picks"}</div>
           {["#1 — Top box office","#2","#3"].map((label,i)=>(
-            <WeekendFilmPicker key={i} label={label} value={sel[i]} suggestions={poolTitles} listId={"weekend-pick-"+i}
+            <WeekendFilmPicker key={i} label={label} value={sel[i]} suggestions={poolTitles} onRequestFilm={requestFilm}
               onChange={v=>setSel(prev=>prev.map((x,j)=>j===i?v:x))}/>
           ))}
           <button onClick={submit} disabled={saving} style={{padding:"9px 20px",borderRadius:7,border:"none",background:"#d4a843",color:"#0d0d14",fontSize:12,fontWeight:700,cursor:"pointer",opacity:saving?0.7:1}}>
@@ -4746,7 +4884,7 @@ function WeekendPicksTab({leagueContext,userMembership}){
             <>
               <div style={{fontSize:11,color:"#8a8a9e",marginBottom:8}}>Declare the weekend result by hand (normally the Monday-evening cron does this from Box Office Mojo). Safe to re-run to correct it.</div>
               {["#1","#2","#3"].map((label,i)=>(
-                <WeekendFilmPicker key={i} label={label} value={adminSel[i]} suggestions={adminTitles} listId={"weekend-admin-"+i}
+                <WeekendFilmPicker key={i} label={label} value={adminSel[i]} suggestions={adminTitles}
                   onChange={v=>setAdminSel(prev=>prev.map((x,j)=>j===i?v:x))}/>
               ))}
               <button disabled={adminBusy||adminSel.some(x=>!x.trim())} onClick={()=>adminCall("admin_resolve_weekend_picks",{p_league_id:LEAGUE_UUID,p_top3:adminSel.map(x=>x.trim())},"Result applied.")}
@@ -4755,6 +4893,7 @@ function WeekendPicksTab({leagueContext,userMembership}){
           )}
         </div>
       )}
+      {isAdmin&&<FilmRequestsAdmin callRpc={callRpc}/>}
     </div>
   );
 }
