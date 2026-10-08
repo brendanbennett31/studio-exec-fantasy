@@ -4884,7 +4884,7 @@ function WeekendPicksTab({leagueContext,userMembership}){
             <>
               <div style={{fontSize:11,color:"#8a8a9e",marginBottom:8}}>Declare the weekend result by hand (normally the Monday-evening cron does this from Box Office Mojo). Safe to re-run to correct it.</div>
               {["#1","#2","#3"].map((label,i)=>(
-                <WeekendFilmPicker key={i} label={label} value={adminSel[i]} suggestions={adminTitles}
+                <WeekendFilmPicker key={i} label={label} value={adminSel[i]} suggestions={adminTitles} onRequestFilm={requestFilm}
                   onChange={v=>setAdminSel(prev=>prev.map((x,j)=>j===i?v:x))}/>
               ))}
               <button disabled={adminBusy||adminSel.some(x=>!x.trim())} onClick={()=>adminCall("admin_resolve_weekend_picks",{p_league_id:LEAGUE_UUID,p_top3:adminSel.map(x=>x.trim())},"Result applied.")}
