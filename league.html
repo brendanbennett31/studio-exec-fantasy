@@ -4559,7 +4559,7 @@ function WeekendFilmPicker({label,value,onChange,suggestions,disabled,placeholde
                 onMouseEnter={e=>e.currentTarget.style.background="#1a1a28"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>{t}</div>
             ))}
             {noMatch&&(
-              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,padding:"9px 12px",fontSize:12,color:"#8a8a9e"}}>
+              <div style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",fontSize:12,color:"#8a8a9e"}}>
                 <span>Not in our film list?</span>
                 <button onMouseDown={e=>{e.preventDefault();setReqTitle(typed);setReqOpen(true);setReqMsg(null);setFocus(false);}}
                   style={{background:"rgba(212,168,67,0.1)",border:"1px solid rgba(212,168,67,0.35)",borderRadius:5,color:"#d4a843",fontSize:11,fontWeight:700,padding:"3px 11px",cursor:"pointer",whiteSpace:"nowrap"}}>Add film</button>
