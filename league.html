@@ -4526,8 +4526,9 @@ function WeekendFilmPicker({label,value,onChange,suggestions,disabled,placeholde
   const list=suggestions||[];
   const matches=useMemo(()=>(n?list.filter(t=>norm(t).includes(n)):list).slice(0,8),[n,list]);
   const exact=list.some(t=>norm(t)===n);
-  const showList=focus&&!disabled&&matches.length>0&&!(matches.length===1&&exact);
-  const noMatch=!disabled&&!!onRequestFilm&&typed.length>=2&&matches.length===0;
+  const noMatch=!disabled&&!!onRequestFilm&&typed.length>=2&&matches.length===0&&!reqOpen;
+  const showMatches=matches.length>0&&!(matches.length===1&&exact);
+  const showList=focus&&!disabled&&(showMatches||noMatch);
 
   async function sendRequest(){
     const t=reqTitle.trim();
@@ -4551,21 +4552,22 @@ function WeekendFilmPicker({label,value,onChange,suggestions,disabled,placeholde
           placeholder={placeholder||"Type a film…"} maxLength={120} autoComplete="off"
           style={{width:"100%",padding:"9px 12px",borderRadius:7,border:"1px solid #2a2a3a",background:disabled?"#14141c":"#0e0e16",color:"#e8e8f0",fontSize:13,boxSizing:"border-box",cursor:disabled?"not-allowed":"text"}}/>
         {showList&&(
-          <div style={{position:"absolute",top:"100%",left:0,right:0,zIndex:30,marginTop:2,maxHeight:220,overflowY:"auto",background:"#0e0e16",border:"1px solid #2a2a3a",borderRadius:7,boxShadow:"0 8px 24px rgba(0,0,0,0.5)"}}>
-            {matches.map(t=>(
+          <div style={{position:"absolute",top:"100%",left:0,right:0,zIndex:30,marginTop:2,maxHeight:220,overflowY:"auto",background:"#171722",border:"1px solid #3a3a52",borderRadius:7,boxShadow:"0 10px 28px rgba(0,0,0,0.65)"}}>
+            {showMatches&&matches.map(t=>(
               <div key={t} onMouseDown={e=>{e.preventDefault();onChange(t);setFocus(false);}}
                 style={{padding:"9px 12px",fontSize:13,color:"#e8e8f0",cursor:"pointer",borderBottom:"1px solid #1a1a28"}}
                 onMouseEnter={e=>e.currentTarget.style.background="#1a1a28"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>{t}</div>
             ))}
+            {noMatch&&(
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,padding:"9px 12px",fontSize:12,color:"#8a8a9e"}}>
+                <span>Not in our film list?</span>
+                <button onMouseDown={e=>{e.preventDefault();setReqTitle(typed);setReqOpen(true);setReqMsg(null);setFocus(false);}}
+                  style={{background:"rgba(212,168,67,0.1)",border:"1px solid rgba(212,168,67,0.35)",borderRadius:5,color:"#d4a843",fontSize:11,fontWeight:700,padding:"3px 11px",cursor:"pointer",whiteSpace:"nowrap"}}>Add film</button>
+              </div>
+            )}
           </div>
         )}
       </div>
-      {noMatch&&!reqOpen&&(
-        <div style={{fontSize:11,color:"#8a8a9e",marginTop:6}}>
-          Not in our film list?{" "}
-          <button onClick={()=>{setReqTitle(typed);setReqOpen(true);setReqMsg(null);}} style={{background:"rgba(212,168,67,0.1)",border:"1px solid rgba(212,168,67,0.35)",borderRadius:5,color:"#d4a843",fontSize:11,fontWeight:700,padding:"2px 9px",cursor:"pointer"}}>Add film</button>
-        </div>
-      )}
       {reqOpen&&(
         <div style={{marginTop:8,padding:12,borderRadius:8,background:"#0e0e16",border:"1px solid rgba(212,168,67,0.3)"}}>
           <div style={{fontSize:11,color:"#8a8a9e",marginBottom:8,lineHeight:1.5}}>Type the film's name. We'll look it up and an admin will add it to the film list. You can still use it as your pick right now.</div>
