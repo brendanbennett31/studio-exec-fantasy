@@ -3616,22 +3616,33 @@ function DonutSection({data}){
 
 // ─── AWARDS ──────────────────
 // ── AWARDS SCORING CONFIG ─────────────────────────────────────────────────────
+// Every category Gold Derby predicts for the Oscars (keys must match
+// gold_derby_odds.category exactly -- they are Gold Derby's own names). The
+// league rules pay every nomination/win, so every category counts. Best
+// Picture really has up to 10 slots, but Gold Derby's combined-odds page only
+// lists each category's top 5, so BP has at most 5 known contenders.
 const OSCAR_CATEGORIES = [
-  {key:"Best Picture",              nom_value:25, win_value:25, bp_win:true,  slots:10},
-  {key:"Best Director",             nom_value:25, win_value:25, bp_win:false, slots:5},
-  {key:"Best Actress",              nom_value:25, win_value:25, bp_win:false, slots:5},
-  {key:"Best Actor",                nom_value:25, win_value:25, bp_win:false, slots:5},
-  {key:"Best Supporting Actress",   nom_value:25, win_value:25, bp_win:false, slots:5},
-  {key:"Best Supporting Actor",     nom_value:25, win_value:25, bp_win:false, slots:5},
-  {key:"Best Adapted Screenplay",   nom_value:25, win_value:25, bp_win:false, slots:5},
-  {key:"Best Original Screenplay",  nom_value:25, win_value:25, bp_win:false, slots:5},
-  {key:"Best Cinematography",       nom_value:25, win_value:25, bp_win:false, slots:5},
-  {key:"Best Film Editing",         nom_value:25, win_value:25, bp_win:false, slots:5},
-  {key:"Best Original Score",       nom_value:25, win_value:25, bp_win:false, slots:5},
-  {key:"Best Visual Effects",       nom_value:25, win_value:25, bp_win:false, slots:5},
-  {key:"Best Animated Feature",     nom_value:25, win_value:25, bp_win:false, slots:5},
-  {key:"Best International Feature",nom_value:25, win_value:25, bp_win:false, slots:5},
-  {key:"Best Documentary Feature",  nom_value:25, win_value:25, bp_win:false, slots:5},
+  {key:"Best Picture",               nom_value:25, win_value:25, bp_win:true,  slots:10},
+  {key:"Best Director",              nom_value:25, win_value:25, bp_win:false, slots:5},
+  {key:"Best Actress",               nom_value:25, win_value:25, bp_win:false, slots:5},
+  {key:"Best Actor",                 nom_value:25, win_value:25, bp_win:false, slots:5},
+  {key:"Best Supporting Actress",    nom_value:25, win_value:25, bp_win:false, slots:5},
+  {key:"Best Supporting Actor",      nom_value:25, win_value:25, bp_win:false, slots:5},
+  {key:"Best Adapted Screenplay",    nom_value:25, win_value:25, bp_win:false, slots:5},
+  {key:"Best Original Screenplay",   nom_value:25, win_value:25, bp_win:false, slots:5},
+  {key:"Best Casting",               nom_value:25, win_value:25, bp_win:false, slots:5},
+  {key:"Best Cinematography",        nom_value:25, win_value:25, bp_win:false, slots:5},
+  {key:"Best Costume Design",        nom_value:25, win_value:25, bp_win:false, slots:5},
+  {key:"Best Film Editing",          nom_value:25, win_value:25, bp_win:false, slots:5},
+  {key:"Best Makeup and Hairstyling", nom_value:25, win_value:25, bp_win:false, slots:5},
+  {key:"Best Production Design",     nom_value:25, win_value:25, bp_win:false, slots:5},
+  {key:"Best Score",                 nom_value:25, win_value:25, bp_win:false, slots:5},
+  {key:"Best Song",                  nom_value:25, win_value:25, bp_win:false, slots:5},
+  {key:"Best Sound",                 nom_value:25, win_value:25, bp_win:false, slots:5},
+  {key:"Best Visual Effects",        nom_value:25, win_value:25, bp_win:false, slots:5},
+  {key:"Best Animated Feature",      nom_value:25, win_value:25, bp_win:false, slots:5},
+  {key:"Best Documentary Feature",   nom_value:25, win_value:25, bp_win:false, slots:5},
+  {key:"Best International Film",    nom_value:25, win_value:25, bp_win:false, slots:5},
 ];
 
 // fmt helper for awards tab - handles billions
@@ -3661,8 +3672,16 @@ function AwardsTab({films,leagueCtx}){
     async function loadOdds(){
       try{
         const rows=await supabaseFetch("gold_derby_odds",`season=eq.${oddsSeason}&order=nom_odds.desc`);
-        setOdds(rows||[]);
-        if(rows.length) setOddsUpdated(rows[0].updated_at);
+        // One row per nominee: the database now enforces this, but never let a
+        // repeated (category, film, performer) double-count if one ever slips in.
+        const seen=new Set();
+        const clean=(rows||[]).filter(r=>{
+          const k=[r.category,(r.film_title||"").trim().toLowerCase(),(r.performer_name||"").trim().toLowerCase()].join("|");
+          if(seen.has(k)) return false;
+          seen.add(k); return true;
+        });
+        setOdds(clean);
+        if(clean.length) setOddsUpdated(clean[0].updated_at);
       }catch(e){console.warn("awards odds load failed:",e.message);}
       setLoading(false);
     }
@@ -3676,46 +3695,37 @@ function AwardsTab({films,leagueCtx}){
     }
   },[odds]);
 
-  const filmOddsMap=useMemo(()=>{
-    const map={};
-    odds.forEach(r=>{
-      if(!map[r.film_title]) map[r.film_title]={};
-      map[r.film_title][r.category]={nom:r.nom_odds,win:r.win_odds||0};
-    });
-    return map;
-  },[odds]);
+  // Film titles are matched case-insensitively everywhere (Gold Derby writes
+  // "Once Upon a Time in Harlem", a slate may say "Once Upon A Time In Harlem").
+  const titleKey=t=>(t||"").toString().toLowerCase().trim();
 
-  const performerMap=useMemo(()=>{
-    const map={};
-    odds.forEach(r=>{
-      if(!r.performer_name) return;
-      if(!map[r.category]) map[r.category]=[];
-      map[r.category].push({film:r.film_title,performer:r.performer_name,nom_odds:r.nom_odds});
-    });
-    return map;
-  },[odds]);
-
+  // Every NOMINEE is a nomination: two Odyssey supporting actresses are two
+  // nominations, so count each row in a category's top slots rather than each
+  // film once. The category's top-ranked nominee is the projected winner.
   function calcFilmProjected(filmTitle){
+    const key=titleKey(filmTitle);
     let noms=0,wins=0,nomCount=0,winCount=0,ev=0;
     OSCAR_CATEGORIES.forEach(cat=>{
       const catOdds=odds.filter(o=>o.category===cat.key).sort((a,b)=>b.nom_odds-a.nom_odds);
-      const rank=catOdds.findIndex(o=>o.film_title===filmTitle);
-      if(rank<0) return;
-      const d=filmOddsMap[filmTitle]?.[cat.key];
-      if(d){ ev+=(d.nom/100)*cat.nom_value+(d.win/100)*(cat.bp_win?50:cat.win_value); }
-      if(rank<cat.slots){
-        noms+=cat.nom_value; nomCount++;
-        if(rank===0){ wins+=(cat.bp_win?50:cat.win_value); winCount++; }
-      }
+      catOdds.forEach((o,rank)=>{
+        if(titleKey(o.film_title)!==key) return;
+        const winValue=cat.bp_win?50:cat.win_value;
+        ev+=(o.nom_odds/100)*cat.nom_value+((o.win_odds||0)/100)*winValue;
+        if(rank<cat.slots){
+          noms+=cat.nom_value; nomCount++;
+          if(rank===0){ wins+=winValue; winCount++; }
+        }
+      });
     });
     return{projected:noms+wins,noms,wins,nomCount,winCount,ev};
   }
 
+  // keyed by lower-cased title (see titleKey)
   const filmProjections=useMemo(()=>{
     const proj={};
-    new Set(odds.map(o=>o.film_title)).forEach(t=>{ proj[t]=calcFilmProjected(t); });
+    new Set(odds.map(o=>titleKey(o.film_title))).forEach(k=>{ proj[k]=calcFilmProjected(k); });
     return proj;
-  },[odds,filmOddsMap]);
+  },[odds]);
 
   // Build a case-insensitive slate lookup
   const slateFilmsLower=useMemo(()=>{
@@ -3739,7 +3749,7 @@ function AwardsTab({films,leagueCtx}){
     allTeams.forEach(team=>{ evs[team]={projected:0,ev:0,nomCount:0,winCount:0,films:[]}; });
     (films||[]).forEach(f=>{
       if(f.voided) return;
-      const proj=filmProjections[f.title];
+      const proj=filmProjections[titleKey(f.title)];
       if(!proj||proj.projected===0) return;
       evs[f.team].projected+=proj.projected;
       evs[f.team].ev+=proj.ev;
@@ -3769,7 +3779,7 @@ function AwardsTab({films,leagueCtx}){
     let best=null,bestProj=0;
     (films||[]).forEach(f=>{
       if(f.voided) return;
-      const proj=filmProjections[f.title]?.projected||0;
+      const proj=filmProjections[titleKey(f.title)]?.projected||0;
       if(proj>bestProj){bestProj=proj;best=f;}
     });
     return best?{...best,proj:bestProj}:null;
@@ -3807,8 +3817,6 @@ function AwardsTab({films,leagueCtx}){
     return CATEGORY_ORDER.filter(c=>inData.has(c));
   },[odds]);
 
-  const actorCats=new Set(["Best Actress","Best Actor","Best Supporting Actress","Best Supporting Actor"]);
-  const directorCat="Best Director";
 
   if(loading) return(
     <div style={{textAlign:"center",padding:"48px 20px",color:"#6a6a7e"}}>
@@ -4037,62 +4045,39 @@ function AwardsTab({films,leagueCtx}){
           // Use case-insensitive lookup for slate matching
           const slateInTop=topSlotFilms.filter(o=>!!findSlateFilm(o.film_title));
           if(!slateInTop.length) return null;
-          const isActorCat=actorCats.has(cat);
-          const isDirCat=cat===directorCat;
           return(
             <div key={cat} style={{marginBottom:24}}>
               <div style={{fontSize:11,fontWeight:700,color:"#9a9ab0",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:10,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                 <span>{cat}</span>
-                <span style={{fontSize:9,color:"#4a4a5e",fontWeight:400}}>Top {slots} slots</span>
+                <span style={{fontSize:9,color:"#4a4a5e",fontWeight:400}}>Top {Math.min(slots,allCatOdds.length)} slots</span>
               </div>
               {topSlotFilms.map((f,idx)=>{
                 const isDrafted=!!findSlateFilm(f.film_title);
                 const film=findSlateFilm(f.film_title);
                 const execColor=film?EXEC_COLORS[film.team]||"#6a6a7e":"#6a6a7e";
                 const isGlobalWinner=idx===0;
-                const performers=isActorCat?(performerMap[cat]||[]).filter(p=>p.film===f.film_title):[];
-                // For director cat: strip director surname from "Surname FilmTitle"
-                // by finding the longest slate film name that appears at end of film_title
-                let displayTitle=f.film_title;
-                if(isDirCat){
-                  // Try to find a slate film whose title is contained at end of film_title
-                  const lower=f.film_title.toLowerCase();
-                  let bestMatch="";
-                  (films||[]).forEach(sl=>{
-                    const slLower=sl.title.toLowerCase();
-                    if(lower.endsWith(slLower)&&sl.title.length>bestMatch.length) bestMatch=sl.title;
-                  });
-                  // Also try odds titles from Best Picture as reference
-                  if(!bestMatch){
-                    const words=f.film_title.split(" ");
-                    // Skip first word (director surname) and use rest as film title
-                    if(words.length>1) bestMatch=words.slice(1).join(" ");
-                  }
-                  if(bestMatch) displayTitle=bestMatch;
-                }
+                // Each row is one nominee: a person (acting/director), a song
+                // (Best Song, performer_name holds the song title) or just the film.
+                const person=f.performer_name||null;
+                const displayTitle=person||f.film_title;
                 return(
-                  <div key={f.film_title+idx} style={{display:"flex",alignItems:"center",gap:10,marginBottom:8,opacity:isDrafted?1:0.4}}>
+                  <div key={f.film_title+"|"+(f.performer_name||"")+"|"+idx} style={{display:"flex",alignItems:"center",gap:10,marginBottom:8,opacity:isDrafted?1:0.4}}>
                     <div style={{width:22,fontFamily:"monospace",fontSize:10,
                       color:isGlobalWinner&&isDrafted?"#d4a843":isDrafted?"#6a6a7e":"#3a3a50",
                       flexShrink:0,textAlign:"right",fontWeight:isGlobalWinner&&isDrafted?700:400}}>
                       #{idx+1}
                     </div>
                     <div style={{width:180,flexShrink:0}}>
-                      {performers.length>0
-                        ?performers.map((p,pi)=>(
-                            <div key={pi} style={{fontSize:12,color:isDrafted?"#e8e8f0":"#6a6a7e",fontWeight:isGlobalWinner&&isDrafted?700:400,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{p.performer}</div>
-                          ))
-                        :<div style={{fontSize:12,color:isDrafted?"#e8e8f0":"#6a6a7e",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontWeight:isGlobalWinner&&isDrafted?700:400}}>{displayTitle}</div>
-                      }
+                      <div style={{fontSize:12,color:isDrafted?"#e8e8f0":"#6a6a7e",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontWeight:isGlobalWinner&&isDrafted?700:400}}>{cat==="Best Song"&&person?`“${person}”`:displayTitle}</div>
                       {isDrafted&&film?(
                         <div style={{fontSize:9,color:execColor,marginTop:1,fontWeight:600,display:"flex",gap:4}}>
                           <span>{DISPLAY[film.team]||film.team}</span>
-                          {performers.length>0&&<span style={{color:"#4a4a5e"}}>· {f.film_title}</span>}
+                          {person&&<span style={{color:"#4a4a5e"}}>· {f.film_title}</span>}
                         </div>
                       ):(
                         <div style={{fontSize:9,color:"#3a3a50",marginTop:1,display:"flex",gap:4}}>
                           <span>undrafted</span>
-                          {performers.length>0&&<span>· {f.film_title}</span>}
+                          {person&&<span>· {f.film_title}</span>}
                         </div>
                       )}
                     </div>
