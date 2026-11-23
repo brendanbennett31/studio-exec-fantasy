@@ -4195,9 +4195,14 @@ function FilmRequestsAdmin({callRpc}){
   const[busy,setBusy]=useState(null);
   const[msg,setMsg]=useState(null);
   const[dates,setDates]=useState({});
+  // Films go into the shared Universe, so only the site admin reviews them (migration 069).
+  // Commissioners see nothing here; the site admin also gets the requests by email.
+  const[hidden,setHidden]=useState(false);
   async function load(){
     const r=await callRpc("list_film_add_requests",{p_league_id:LEAGUE_UUID});
-    if(r.ok) setReqs(r.data||[]); else setMsg({text:r.data?.message||"Couldn't load requests",error:true});
+    if(r.ok) setReqs(r.data||[]);
+    else if(/site admin/i.test(r.data?.message||"")) setHidden(true);
+    else setMsg({text:r.data?.message||"Couldn't load requests",error:true});
   }
   useEffect(()=>{ load(); },[]);
   async function act(id,action,extra,okText){
@@ -4208,6 +4213,7 @@ function FilmRequestsAdmin({callRpc}){
     else setMsg({text:r.data?.message||"That didn't work",error:true});
   }
   const btn={padding:"5px 11px",borderRadius:6,border:"1px solid rgba(212,168,67,0.35)",background:"rgba(212,168,67,0.08)",color:"#d4a843",fontSize:11,fontWeight:700,cursor:"pointer"};
+  if(hidden) return null;
   return(
     <div style={{padding:16,borderRadius:10,background:"#0e0e16",border:"1px solid #222233",marginTop:16}}>
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
@@ -5257,7 +5263,8 @@ function ManageTab({leagueContext, members, userMembership, draftSession, refres
       setSelectedFilm(null); setPickSearch(''); setCustomTitle(''); setCustomRelease(''); setPickBid('');
       loadUniverseAndPicks();
     } else {
-      setPickMsg({text:"Failed to save — has the league_picks migration been run yet?",error:true});
+      let why=""; try{ why=(await res.json())?.message||""; }catch(e){}
+      setPickMsg({text:why||"Couldn't save that pick — try again.",error:true});
     }
   }
 

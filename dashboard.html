@@ -372,7 +372,7 @@ details.past-seasons[open] summary span:first-child{transform:rotate(90deg)}
     <div id="lamTitle" style="font-family:'Helvetica Neue',sans-serif;font-size:20px;font-weight:700;color:#e8e8f0;margin-bottom:8px;text-align:center"></div>
     <div id="lamBody" style="font-size:13px;color:#6a6a7e;line-height:1.6;margin-bottom:20px;text-align:center"></div>
     <div id="lamConfirmWrap" style="display:none;margin-bottom:16px">
-      <label style="display:block;font-size:11px;color:#6a6a7e;letter-spacing:0.1em;text-transform:uppercase;margin-bottom:6px">Type the league name to confirm</label>
+      <label style="display:block;font-size:11px;color:#6a6a7e;letter-spacing:0.1em;text-transform:uppercase;margin-bottom:6px" id="lamConfirmLabel">Type the league name to confirm</label>
       <input id="lamConfirmInput" type="text" placeholder="" style="width:100%;padding:10px 14px;background:#1a1a28;border:1px solid #222233;border-radius:7px;color:#e8e8f0;font-size:14px;font-family:inherit;outline:none;box-sizing:border-box"/>
     </div>
     <div style="display:flex;gap:10px">
@@ -613,6 +613,14 @@ async function init() {
   }, 60000);
 }
 
+// Re-read the league list after Rename / Leave / Delete / Run it back. (These used to call
+// a loadDashboard() that never existed, so the list silently stayed stale until a reload.)
+async function loadDashboard() {
+  await loadLeagues();
+  await loadNotificationBadges();
+  renderDashboard();
+}
+
 async function loadLeagues() {
   const userId = currentSession.user?.id;
   const { ok, data } = await sbFetch(
@@ -757,7 +765,7 @@ function renderLeagueCard(membership) {
     </button>
     <button class="league-menu-item" onclick="event.stopPropagation();closeLeagueMenus();openDuplicateModal('${league.id}')">
       <svg width="13" height="13" viewBox="0 0 14 14" fill="none"><rect x="4.5" y="4.5" width="8" height="8" rx="1" stroke="currentColor" stroke-width="1.2"/><path d="M2.5 9.5V2.5a1 1 0 0 1 1-1h7" stroke="currentColor" stroke-width="1.2"/></svg>
-      Duplicate
+      Run it back next season
     </button>
     <div class="league-menu-divider"></div>
     <button class="league-menu-item danger" onclick="event.stopPropagation();closeLeagueMenus();confirmDeleteLeague('${league.id}')">
@@ -1302,6 +1310,7 @@ function openRenameModal(leagueId, currentName) {
   document.getElementById('lamTitle').textContent = 'Rename League';
   document.getElementById('lamBody').textContent = 'Enter a new name for this league.';
   // Override the confirm wrap to be a text input for the new name
+  document.getElementById('lamConfirmLabel').textContent = 'New league name';
   const wrap = document.getElementById('lamConfirmWrap');
   wrap.style.display = 'block';
   const input = document.getElementById('lamConfirmInput');
@@ -1325,19 +1334,21 @@ function openRenameModal(leagueId, currentName) {
 
 function openDuplicateModal(leagueId) {
   const currentName = leagueById(leagueId).name || '';
-  const currentSeason = leagueById(leagueId).season;
+  // season comes back as text ("2026"); "2026" + 1 would be "20261"
+  const currentSeason = parseInt(leagueById(leagueId).season, 10) || new Date().getFullYear();
   // Reuse the LAM modal infrastructure, same pattern as openRenameModal.
   const modal = document.getElementById('leagueActionModal');
   document.getElementById('lamIcon').innerHTML = '<svg width="24" height="24" viewBox="0 0 12 12" fill="none"><rect x="2" y="2" width="6" height="6" rx="1" stroke="#d4a843" stroke-width="1.2"/><path d="M5 8v1a1 1 0 0 0 1 1h4a1 1 0 0 0 1-1V5a1 1 0 0 0-1-1h-1" stroke="#d4a843" stroke-width="1.2"/></svg>';
-  document.getElementById('lamTitle').textContent = 'Duplicate League';
-  document.getElementById('lamBody').textContent = `Creates a new league for Season ${currentSeason + 1} with the same settings, roster, and current picks as "${currentName}". The original league is never modified.`;
+  document.getElementById('lamTitle').textContent = 'Run It Back';
+  document.getElementById('lamBody').textContent = `Starts a ${currentSeason + 1} league with the same settings and the same studios as "${currentName}". Everyone gets a fresh budget and an empty roster for a new draft. "${currentName}" stays exactly as it is.`;
   const wrap = document.getElementById('lamConfirmWrap');
   wrap.style.display = 'block';
   const input = document.getElementById('lamConfirmInput');
   input.value = currentName;
   input.placeholder = 'New league name';
+  document.getElementById('lamConfirmLabel').textContent = 'Name for next season';
   const btn = document.getElementById('lamConfirmBtn');
-  btn.textContent = 'Duplicate';
+  btn.textContent = 'Start next season';
   btn.style.background = '#d4a843';
   btn.style.color = '#0d0d14';
   btn.disabled = false;
@@ -1390,6 +1401,7 @@ function openLAM({icon, title, body, confirmLabel, requiresTyping, action}) {
   const wrap = document.getElementById('lamConfirmWrap');
   const input = document.getElementById('lamConfirmInput');
   if (requiresTyping) {
+    document.getElementById('lamConfirmLabel').textContent = 'Type the league name to confirm';
     wrap.style.display = 'block';
     input.value = '';
     input.placeholder = _lamLeagueName;
@@ -1463,22 +1475,23 @@ async function executeLAM() {
     else showToast('Rename failed', true);
 
   } else if (_lamAction === 'leave') {
-    const { ok } = await sbFetch(
+    // The server refuses if your studio owns films this season (migration 069),
+    // and hands the commissioner role on if you were the last one.
+    const { ok, data } = await sbFetch(
       `/rest/v1/league_members?league_id=eq.${_lamLeagueId}&user_id=eq.${currentSession.user.id}`,
-      { method: 'DELETE' }
+      { method: 'DELETE', headers: { 'Prefer': 'return=representation' } }
     );
     closeLAM();
-    if (ok) { showToast('You have left the league'); await loadDashboard(); }
-    else showToast('Failed to leave league', true);
+    if (ok && data?.length) { showToast('You have left the league'); await loadDashboard(); }
+    else showToast(data?.message || 'Failed to leave league', true);
 
   } else if (_lamAction === 'delete') {
-    // Delete picks, members, then league
-    await sbFetch(`/rest/v1/league_picks?league_id=eq.${_lamLeagueId}`, { method: 'DELETE' });
-    await sbFetch(`/rest/v1/league_members?league_id=eq.${_lamLeagueId}`, { method: 'DELETE' });
-    const { ok } = await sbFetch(`/rest/v1/leagues?id=eq.${_lamLeagueId}`, { method: 'DELETE' });
+    // One delete: everything else in the league (members, films, draft, results) cascades.
+    const { ok, data } = await sbFetch(`/rest/v1/leagues?id=eq.${_lamLeagueId}`,
+      { method: 'DELETE', headers: { 'Prefer': 'return=representation' } });
     closeLAM();
-    if (ok) { showToast('League deleted'); await loadDashboard(); }
-    else showToast('Failed to delete league', true);
+    if (ok && data?.length) { showToast('League deleted'); await loadDashboard(); }
+    else showToast(data?.message || 'Only the commissioner can delete this league', true);
 
   } else if (_lamAction === 'duplicate') {
     const input = document.getElementById('lamConfirmInput');
@@ -1493,7 +1506,7 @@ async function executeLAM() {
       })
     });
     closeLAM();
-    if (ok) { showToast('League duplicated'); await loadDashboard(); }
+    if (ok) { showToast('Next season is set up -- the draft is open'); await loadDashboard(); }
     else showToast(data?.message || 'Failed to duplicate league', true);
   }
 }
