@@ -114,10 +114,18 @@ function scrapeUniverseBoxOffice() {
   var updated = [], noData = [], failed = [], deferred = 0;
   for (var i = 0; i < due.length; i++) {
     if (Date.now() - started > BO_TIME_BUDGET_MS) { deferred = due.length - i; break; }
+    if (i > 0) Utilities.sleep(1000); // pause between every request, whichever way the previous film ended
     var f = due[i];
     try {
       var page = bomFetch("/title/" + f.imdb_id + "/");
       if (page.code === 429) { Logger.log("Box Office Mojo is rate-limiting us (429) -- stopping early, will resume next run."); deferred = due.length - i; break; }
+      if (page.code === 404) {
+        // BOM has no page at this IMDb id (wrong id, or not tracked). Same treatment as "no
+        // domestic gross": stamp the check so it drops to the weekly sweep. Worth a manual look.
+        boPatchFilm(f.id, { last_check_date: today });
+        noData.push(f.title + " (BOM page not found -- check its IMDb id)");
+        continue;
+      }
       if (page.code !== 200) { failed.push(f.title + " (HTTP " + page.code + ")"); continue; }
 
       var newBO = extractDomesticBO(page.html);
@@ -151,7 +159,6 @@ function scrapeUniverseBoxOffice() {
     } catch (e) {
       failed.push(f.title + " (" + e.message + ")");
     }
-    Utilities.sleep(1000);
   }
 
   Logger.log("Updated (" + updated.length + "):\n" + (updated.join("\n") || "  none"));
