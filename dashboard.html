@@ -175,6 +175,9 @@ header{position:sticky;top:0;z-index:50;height:60px;padding:0 32px;display:flex;
   .form-row{grid-template-columns:1fr}
   .profile-card{flex-direction:column;align-items:flex-start}
 }
+details.past-seasons summary::-webkit-details-marker{display:none}
+details.past-seasons summary span:first-child{display:inline-block;transition:transform .15s}
+details.past-seasons[open] summary span:first-child{transform:rotate(90deg)}
 </style>
 </head>
 <body>
@@ -228,16 +231,16 @@ header{position:sticky;top:0;z-index:50;height:60px;padding:0 32px;display:flex;
     <div class="form-section-label">League Info</div>
     <div class="form-group">
       <label class="form-label">League Name</label>
-      <input class="form-input" type="text" id="cl-name" placeholder="e.g. The Academy League"/>
+      <input class="form-input" type="text" id="cl-name" maxlength="40" placeholder="e.g. The Academy League"/>
     </div>
     <div class="form-row">
       <div class="form-group">
         <label class="form-label">Season Year</label>
-        <input class="form-input" type="number" id="cl-season" value="2026" min="2024" max="2040" onchange="onCreateLeagueSeasonChange()"/>
+        <select class="form-input" id="cl-season" onchange="onCreateLeagueSeasonChange()"><option value="2026">2026</option></select>
       </div>
       <div class="form-group">
         <label class="form-label">Number of Players</label>
-        <input class="form-input" type="number" id="cl-players" value="5" min="2" max="20"/>
+        <input class="form-input" type="number" id="cl-players" value="6" min="3" max="12"/>
       </div>
     </div>
     <div class="settings-mode-toggle">
@@ -395,6 +398,7 @@ header{position:sticky;top:0;z-index:50;height:60px;padding:0 32px;display:flex;
 </div>
 <style>@keyframes slideInRight{from{transform:translateX(100%);opacity:0}to{transform:translateX(0);opacity:1}}</style>
 
+<script src="/error-report.js"></script>
 <script>
 const SUPABASE_URL = "https://fymkwkbatklfynnhxrsf.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_HOd_kJ4JcmD2srkGPyjEPA_2LIzKFxG";
@@ -582,20 +586,18 @@ async function init() {
   if (_dname) _dname.textContent = currentProfile.display_name || '—';
   if (_demail) _demail.textContent = currentSession?.user?.email || '—';
 
-  // Season year floor: can't create a league for a year before the current
-  // one. Sets both the native min (a soft hint -- browsers/users can still
-  // type past it) and the field's default value, so a fresh Create League
-  // open doesn't default to an already-stale year once 2026 has passed.
+  await loadSeasons();
   const _clSeasonInput = document.getElementById('cl-season');
   if (_clSeasonInput) {
-    const _thisYear = new Date().getFullYear();
-    _clSeasonInput.min = _thisYear;
-    // Default to the next season that hasn't started yet (e.g. in Nov 2026 -> 2027), since
-    // a league can't draft films that already released. Still freely editable.
+    // Seasons come from the seasons table: only ones whose Oscars haven't happened can be
+    // picked. Default to the next season that hasn't started yet, since a league can't draft
+    // films that already released.
     const _today = new Date().toISOString().slice(0, 10);
-    let _defSeason = _thisYear;
-    while (seasonWindowFor(_defSeason).start <= _today) _defSeason++;
-    _clSeasonInput.value = _defSeason;
+    const open = Object.values(SEASONS).filter(x => x.oscar_date > _today).sort((a, b) => a.season.localeCompare(b.season));
+    if (open.length) {
+      _clSeasonInput.innerHTML = open.map(x => `<option value="${escHtml(x.season)}">${escHtml(x.season)}/${String(+x.season + 1).slice(-2)} season</option>`).join('');
+      _clSeasonInput.value = (open.find(x => x.window_start > _today) || open[open.length - 1]).season;
+    }
   }
 
   // Load league memberships
@@ -619,6 +621,23 @@ async function loadLeagues() {
   if (ok && Array.isArray(data)) {
     userLeagues = data.filter(m => m.league);
   }
+  // winners of finished seasons (for the Wrapped banner and Past seasons)
+  const done = userLeagues.filter(m => m.league.finalized_at).map(m => m.league.id);
+  if (done.length) {
+    const r = await sbFetch(`/rest/v1/league_results?league_id=in.(${done.join(',')})&select=league_id,winner_team,winner_user_id`);
+    if (r.ok && Array.isArray(r.data)) r.data.forEach(x => { WINNERS[x.league_id] = x; });
+  }
+}
+let WINNERS = {};
+// A finished league stays in "My Leagues" (with its Wrapped banner) for 14 days, then moves
+// to the collapsible Past seasons list so it never crowds out the current season.
+const PAST_AFTER_DAYS = 14;
+function isPastSeason(league) {
+  return !!league.finalized_at && (Date.now() - new Date(league.finalized_at).getTime()) > PAST_AFTER_DAYS * 864e5;
+}
+function youWon(league, membership) {
+  const w = WINNERS[league.id];
+  return !!(w && membership && w.winner_team === membership.team_name);
 }
 
 async function loadNotificationBadges() {
@@ -683,12 +702,39 @@ function renderLeagues() {
     `;
   }
 
+  const current = userLeagues.filter(m => !isPastSeason(m.league));
+  const past = userLeagues.filter(m => isPastSeason(m.league))
+    .sort((a, b) => String(b.league.finalized_at).localeCompare(String(a.league.finalized_at)));
   return `
-    <div style="border:1px solid #222233;border-radius:12px;padding:20px;background:#12121c">
-      <div class="leagues-grid">${userLeagues.map(m => renderLeagueCard(m)).join('')}</div>
-
-    </div>
+    ${current.length ? `<div style="border:1px solid #222233;border-radius:12px;padding:20px;background:#12121c">
+      <div class="leagues-grid">${current.map(m => renderLeagueCard(m)).join('')}</div>
+    </div>` : `<div class="empty-state" style="padding:28px 16px"><h3>No active leagues</h3><p>Start a league for the new season, or join one with an invite code.</p></div>`}
+    ${past.length ? `<details class="past-seasons" style="margin-top:18px">
+      <summary style="cursor:pointer;list-style:none;display:flex;align-items:center;gap:8px;font-size:11px;letter-spacing:0.15em;text-transform:uppercase;color:#8a8a9e;font-weight:700;padding:6px 0">
+        <span style="font-size:10px">&#9656;</span> Past seasons (${past.length})
+      </summary>
+      <div style="display:grid;gap:8px;margin-top:10px">${past.map(m => renderPastSeason(m)).join('')}</div>
+    </details>` : ''}
   `;
+}
+
+function renderPastSeason(m) {
+  const l = m.league, w = WINNERS[l.id];
+  const champ = w ? w.winner_team : '—';
+  return `<a href="/wrapped?id=${l.id}" style="display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:12px;align-items:center;padding:12px 14px;border:1px solid #222233;border-radius:10px;background:#12121c;text-decoration:none;color:#e8e8f0">
+    <span aria-hidden="true">&#127942;</span>
+    <span style="min-width:0"><span style="display:block;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(l.name)}</span>
+      <span style="display:block;font-size:12px;color:#8a8a9e;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(l.season)}/${String(+l.season + 1).slice(-2)} &middot; Champion: ${escHtml(champ)}${youWon(l, m) ? ' (you!)' : ''}</span></span>
+    <span style="font-size:12px;color:#d4a843;font-weight:700;white-space:nowrap">Wrapped &rarr;</span></a>`;
+}
+
+function renderWrappedStrip(league, membership) {
+  if (!league.finalized_at) return '';
+  const w = WINNERS[league.id];
+  const label = w ? (youWon(league, membership) ? `${escHtml(w.winner_team)} &mdash; that's you!` : `${escHtml(w.winner_team)} wins`) : 'Season final';
+  return `<a href="/wrapped?id=${league.id}" onclick="event.stopPropagation()" style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin:2px 0 14px;padding:10px 12px;border-radius:8px;background:rgba(251,191,36,0.1);border:1px solid rgba(251,191,36,0.4);color:#fde68a;text-decoration:none;font-size:13px">
+    <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">&#127942; ${label}</span>
+    <span style="font-weight:800;white-space:nowrap">See Wrapped &rarr;</span></a>`;
 }
 
 function renderLeagueCard(membership) {
@@ -705,21 +751,21 @@ function renderLeagueCard(membership) {
     </button>
     ${league.invite_code ? `<div class="league-menu-code">Code: ${escHtml(league.invite_code)}</div>` : ''}
     <div class="league-menu-divider"></div>
-    <button class="league-menu-item" onclick="event.stopPropagation();closeLeagueMenus();renameLeague('${league.id}', '${escHtml(league.name)}')">
+    <button class="league-menu-item" onclick="event.stopPropagation();closeLeagueMenus();renameLeague('${league.id}')">
       <svg width="13" height="13" viewBox="0 0 14 14" fill="none"><path d="M9.5 2.5l2 2L4.5 11.5l-2.7.7.7-2.7L9.5 2.5z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>
       Rename
     </button>
-    <button class="league-menu-item" onclick="event.stopPropagation();closeLeagueMenus();openDuplicateModal('${league.id}', '${escHtml(league.name)}', ${league.season})">
+    <button class="league-menu-item" onclick="event.stopPropagation();closeLeagueMenus();openDuplicateModal('${league.id}')">
       <svg width="13" height="13" viewBox="0 0 14 14" fill="none"><rect x="4.5" y="4.5" width="8" height="8" rx="1" stroke="currentColor" stroke-width="1.2"/><path d="M2.5 9.5V2.5a1 1 0 0 1 1-1h7" stroke="currentColor" stroke-width="1.2"/></svg>
       Duplicate
     </button>
     <div class="league-menu-divider"></div>
-    <button class="league-menu-item danger" onclick="event.stopPropagation();closeLeagueMenus();confirmDeleteLeague('${league.id}', '${escHtml(league.name)}')">
+    <button class="league-menu-item danger" onclick="event.stopPropagation();closeLeagueMenus();confirmDeleteLeague('${league.id}')">
       <svg width="13" height="13" viewBox="0 0 14 14" fill="none"><path d="M2.5 3.5h9M5.5 3.5V2a1 1 0 0 1 1-1h1a1 1 0 0 1 1 1v1.5M11 3.5l-.6 8.1a1 1 0 0 1-1 .9H4.6a1 1 0 0 1-1-.9L3 3.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
       Delete League
     </button>
   ` : `
-    <button class="league-menu-item danger" onclick="event.stopPropagation();closeLeagueMenus();confirmLeaveLeague('${league.id}', '${escHtml(league.name)}')">
+    <button class="league-menu-item danger" onclick="event.stopPropagation();closeLeagueMenus();confirmLeaveLeague('${league.id}')">
       <svg width="13" height="13" viewBox="0 0 14 14" fill="none"><path d="M5.5 2.5h-2a1 1 0 0 0-1 1v7a1 1 0 0 0 1 1h2M9 4.5l2.5 2.5-2.5 2.5M11.3 7H5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
       Leave League
     </button>
@@ -745,6 +791,7 @@ function renderLeagueCard(membership) {
           </div>
         </div>
       </div>
+      ${renderWrappedStrip(league, membership)}
       <div class="league-stats">
         <div class="league-stat">
           <div class="league-stat-val">$${league.budget}M</div>
@@ -755,7 +802,7 @@ function renderLeagueCard(membership) {
           <div class="league-stat-label">Players</div>
         </div>
         <div class="league-stat">
-          <div class="draft-status ${league.draft_status}">${draftOpen ? 'Draft Open' : 'Draft Locked'}</div>
+          <div class="draft-status ${league.draft_status}">${league.finalized_at ? 'Season Final' : draftOpen ? 'Draft Open' : 'Draft Locked'}</div>
         </div>
       </div>
     </div>
@@ -808,8 +855,13 @@ async function handleCreateLeague() {
     errEl.classList.add('show');
     return;
   }
-  if (parseInt(season) < new Date().getFullYear()) {
-    errEl.textContent = `Season year can't be before ${new Date().getFullYear()}.`;
+  if (Object.keys(SEASONS).length && !SEASONS[season]) {
+    errEl.textContent = `The ${season} season isn't open yet.`;
+    errEl.classList.add('show');
+    return;
+  }
+  if (numPlayers < 3 || numPlayers > 12) {
+    errEl.textContent = 'A league holds 3 to 12 players.';
     errEl.classList.add('show');
     return;
   }
@@ -1015,7 +1067,7 @@ function renderSettingsPanel() {
     body.innerHTML = `
       <div style="margin-bottom:16px">
         <label style="display:block;font-size:10px;font-weight:600;color:#6a6a7e;letter-spacing:0.1em;text-transform:uppercase;margin-bottom:6px">Display Name</label>
-        <input id="s-name" type="text" style="${inp}" value="${escHtml(currentProfile.display_name||'')}" placeholder="Your name"/>
+        <input id="s-name" type="text" maxlength="24" style="${inp}" value="${escHtml(currentProfile.display_name||'')}" placeholder="Your name"/>
       </div>
       <div style="margin-bottom:20px">
         <label style="display:block;font-size:10px;font-weight:600;color:#6a6a7e;letter-spacing:0.1em;text-transform:uppercase;margin-bottom:6px">Email Address</label>
@@ -1076,9 +1128,12 @@ async function saveProfileSettings() {
   const data = await res.json();
 
   if (!res.ok) { showSettingsMsg(data.msg || 'Update failed.', true); return; }
+  // profiles.display_name is what other players see -- the login record alone isn't enough
+  const dn = await sbFetch('/rest/v1/rpc/set_my_display_name', { method: 'POST', body: JSON.stringify({ p_name: name }) });
+  if (!dn.ok && dn.status !== 404) { showSettingsMsg(dn.data?.message || 'Update failed.', true); return; }
 
   // Update local state
-  currentProfile.display_name = name;
+  currentProfile.display_name = (dn.ok && typeof dn.data === 'string') ? dn.data : name;
   const s = JSON.parse(localStorage.getItem('sef_session')||'{}');
   s.user = { ...s.user, ...data };
   localStorage.setItem('sef_session', JSON.stringify(s));
@@ -1130,7 +1185,14 @@ function closeModal(id) {
 // to the recent pattern (mid-March to early March the following year) as a
 // rough default -- it's a pre-fill the admin can still adjust, not a
 // authoritative eligibility cutoff the way it is in league.html.
+let SEASONS = {};
+async function loadSeasons() {
+  const { ok, data } = await sbFetch('/rest/v1/seasons?select=*');
+  if (ok && Array.isArray(data)) data.forEach(x => { SEASONS[x.season] = x; });
+}
 function seasonWindowFor(season) {
+  const s = SEASONS[String(season)];
+  if (s) return { start: s.window_start, end: s.window_end };
   const known = { "2026": { start: "2026-03-16", end: "2027-03-14" }, "2027": { start: "2027-03-15", end: "2028-03-05" } };
   if (known[String(season)]) return known[String(season)];
   const y = parseInt(season) || new Date().getFullYear();
@@ -1200,8 +1262,11 @@ function setLoading(btnId, loading, label) {
 
 function escHtml(str) {
   if (!str) return '';
-  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
+// Inline onclick handlers only ever receive a league id; names are looked up here, never
+// interpolated into JavaScript (an HTML-escaped quote is decoded back before the JS runs).
+function leagueById(id) { return (userLeagues.find(m => m.league && m.league.id === id) || {}).league || {}; }
 
 async function copyInviteLink(leagueId, btn) {
   // Find the invite code for this league
@@ -1225,7 +1290,8 @@ async function copyInviteLink(leagueId, btn) {
   } catch(e) {}
 }
 
-async function renameLeague(leagueId, currentName) {
+async function renameLeague(leagueId) {
+  const currentName = leagueById(leagueId).name || '';
   openRenameModal(leagueId, currentName);
 }
 
@@ -1257,7 +1323,9 @@ function openRenameModal(leagueId, currentName) {
   modal.style.display = 'flex';
 }
 
-function openDuplicateModal(leagueId, currentName, currentSeason) {
+function openDuplicateModal(leagueId) {
+  const currentName = leagueById(leagueId).name || '';
+  const currentSeason = leagueById(leagueId).season;
   // Reuse the LAM modal infrastructure, same pattern as openRenameModal.
   const modal = document.getElementById('leagueActionModal');
   document.getElementById('lamIcon').innerHTML = '<svg width="24" height="24" viewBox="0 0 12 12" fill="none"><rect x="2" y="2" width="6" height="6" rx="1" stroke="#d4a843" stroke-width="1.2"/><path d="M5 8v1a1 1 0 0 0 1 1h4a1 1 0 0 0 1-1V5a1 1 0 0 0-1-1h-1" stroke="#d4a843" stroke-width="1.2"/></svg>';
@@ -1348,7 +1416,8 @@ function closeLAM() {
   _lamLeagueName = null;
 }
 
-function confirmLeaveLeague(leagueId, leagueName) {
+function confirmLeaveLeague(leagueId) {
+  const leagueName = leagueById(leagueId).name || 'this league';
   _lamLeagueId = leagueId;
   _lamLeagueName = leagueName;
   openLAM({
@@ -1361,7 +1430,8 @@ function confirmLeaveLeague(leagueId, leagueName) {
   });
 }
 
-function confirmDeleteLeague(leagueId, leagueName) {
+function confirmDeleteLeague(leagueId) {
+  const leagueName = leagueById(leagueId).name || 'this league';
   _lamLeagueId = leagueId;
   _lamLeagueName = leagueName;
   openLAM({

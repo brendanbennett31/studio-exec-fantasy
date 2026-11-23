@@ -170,8 +170,9 @@ var GD_REMIND_DAYS = 7;        // re-email an unanswered film after this long
 // The season window whose ceremony is GD_SEASON (2027 -> Mar 2026 - Mar 2027).
 function gdWindow() {
   var y = parseInt(GD_SEASON, 10);
-  for (var i = 0; i < UF_SEASON_WINDOWS.length; i++) {
-    if (parseInt(UF_SEASON_WINDOWS[i].end.slice(0, 4), 10) === y) return UF_SEASON_WINDOWS[i];
+  var windows = ufSeasonWindows(false);
+  for (var i = 0; i < windows.length; i++) {
+    if (parseInt(windows[i].end.slice(0, 4), 10) === y) return windows[i];
   }
   return null;
 }

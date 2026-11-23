@@ -10,17 +10,21 @@
 // Times are in the project's time zone (Project Settings -> Time zone; Pacific).
 
 var TRIGGER_PLAN = [
-  { fn: "scrapeUniverseFilms",         hours: [8]  },   // new/changed films from TMDb
-  { fn: "scrapeUniverseBoxOffice",     hours: [9, 18] },// totals + opening weekend (morning actuals, evening catch-up)
-  { fn: "scrapeDailyBoxOffice",        hours: [10] },   // day-by-day grosses for the Trends charts
-  { fn: "snapshotWeeklyBOAndPOI",      hours: [11] },   // weekly team snapshots, every league
-  { fn: "ensureAcquisitionWeek",       hours: [8]  },   // open this week's acquisition window
-  { fn: "resolveDueAcquisitionWeeks",  hours: [1]  },   // resolve bids after the Wednesday deadline
-  { fn: "notifyReleaseDayFilms",       hours: [8]  },   // "your film opens today" notifications
-  { fn: "checkNewLeaders",             hours: [19] },   // "new leader" notifications (after the evening box office run)
-  { fn: "resolveWeekendPicks",         hours: [7, 19, 22] }, // Weekend Picks results (no-op unless a weekend is due)
-  { fn: "scrapeGoldDerbyCombinedOdds", hours: [18] },   // Awards odds + missing-film check
-  { fn: "processFilmRequests",         everyMinutes: 10 } // player "add a film" requests -> email
+  // Every job runs through Health.gs's job() wrapper (the run* names), which emails the admin
+  // the moment a job crashes or reports failures.
+  { fn: "runScrapeUniverseFilms",         hours: [8]  },   // new/changed films from TMDb
+  { fn: "runScrapeUniverseBoxOffice",     hours: [9, 18] },// totals + opening weekend (morning actuals, evening catch-up)
+  { fn: "runScrapeDailyBoxOffice",        hours: [10] },   // day-by-day grosses for the Trends charts
+  { fn: "runSnapshotWeeklyBOAndPOI",      hours: [11] },   // weekly team snapshots, every active league
+  { fn: "runEnsureAcquisitionWeek",       hours: [8]  },   // open this week's acquisition window
+  { fn: "runResolveDueAcquisitionWeeks",  hours: [1]  },   // resolve bids after the Wednesday deadline
+  { fn: "runNotifyReleaseDayFilms",       hours: [8]  },   // "your film opens today" notifications
+  { fn: "runCheckNewLeaders",             hours: [19] },   // "new leader" notifications (after the evening box office run)
+  { fn: "runResolveWeekendPicks",         hours: [7, 19, 22] }, // Weekend Picks results (no-op unless a weekend is due)
+  { fn: "runScrapeGoldDerbyCombinedOdds", hours: [18] },   // Awards odds + missing-film check
+  { fn: "runFinalizeSeasons",             hours: [6]  },   // crown every league once a season's Oscar results are final
+  { fn: "runProcessFilmRequests",         everyMinutes: 10 }, // player "add a film" requests -> email
+  { fn: "runCheckHealth",                 everyMinutes: 10 }  // browser errors, stalled jobs, next-season setup -> email
 ];
 
 function syncTriggers() {
@@ -85,6 +89,8 @@ function onOpen() {
       .addItem("Check setup", "checkSetup")
       .addItem("List triggers", "listTriggers")
       .addItem("Rebuild all triggers", "syncTriggers")
+      .addItem("Send a test alert email", "sendTestAlert")
+      .addItem("Finalize finished seasons now", "finalizeSeasons")
       .addSeparator()
       .addItem("Update universe films now", "scrapeUniverseFilms")
       .addItem("Update box office now", "scrapeUniverseBoxOffice")

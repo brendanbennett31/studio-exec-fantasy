@@ -61,8 +61,8 @@ body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;min-h
   </div>
   <div id="stateInvalid" style="display:none">
     <div style="margin-bottom:16px;display:flex;justify-content:center"><svg width="48" height="48" viewBox="0 0 48 48" fill="none"><circle cx="24" cy="24" r="23" stroke="#6a6a7e" strokeWidth="1.5" opacity="0.3"/><rect x="14" y="22" width="20" height="14" rx="2" stroke="#6a6a7e" strokeWidth="1.5"/><path d="M17 22v-5a7 7 0 0 1 14 0v5" stroke="#6a6a7e" strokeWidth="1.5" strokeLinecap="round"/><circle cx="24" cy="29" r="1.5" fill="#6a6a7e"/></svg></div>
-    <div class="title">INVALID INVITE</div>
-    <div class="subtitle">This invite link is invalid or has expired. Ask your league admin for a new one.</div>
+    <div class="title" id="invalidTitle">INVALID INVITE</div>
+    <div class="subtitle" id="invalidMsg">This invite link is invalid or has expired. Ask your league admin for a new one.</div>
     <a href="/" class="btn btn-ghost" style="display:block;text-decoration:none;padding:13px">Back to Home</a>
   </div>
   <div id="stateSuccess" style="display:none">
@@ -72,6 +72,7 @@ body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;min-h
   </div>
 </div>
 
+<script src="/error-report.js"></script>
 <script>
 const SUPABASE_URL = "https://fymkwkbatklfynnhxrsf.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_HOd_kJ4JcmD2srkGPyjEPA_2LIzKFxG";
@@ -213,6 +214,12 @@ async function joinLeague(league, session) {
     show('stateSuccess');
     setTimeout(() => window.location.href = `/league?id=${league.id}`, 2000);
   } else {
+    // The server says why (league full, season over, ...) -- show that instead of "invalid".
+    let msg = '';
+    try { msg = (await res.json()).message || ''; } catch (e) {}
+    if (/full/i.test(msg)) document.getElementById('invalidTitle').textContent = 'LEAGUE FULL';
+    else if (/over/i.test(msg)) document.getElementById('invalidTitle').textContent = 'SEASON OVER';
+    if (msg) document.getElementById('invalidMsg').textContent = msg + '. Ask your league admin if you think this is a mistake.';
     show('stateInvalid');
   }
 }

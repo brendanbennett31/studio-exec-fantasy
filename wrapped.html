@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#0b0709">
+<title>Season Wrapped — Studio Exec Fantasy</title>
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet"/>
+<style>
+:root{
+  --bg:#0b0709; --card:#15101a; --card2:#1c1622; --line:#2a2230; --ink:#f2ead8; --ink2:#bfb3a0; --muted:#8a7f72;
+  --gold:#fbbf24; --gold2:#d4a843; --good:#34d399; --bad:#f87171;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{color-scheme:dark}
+body{background:var(--bg);color:var(--ink);font-family:'Helvetica Neue',-apple-system,BlinkMacSystemFont,sans-serif;-webkit-font-smoothing:antialiased;min-height:100vh}
+a{color:inherit}
+.wrap{max-width:880px;margin:0 auto;padding:0 16px 60px}
+.top{position:sticky;top:0;z-index:20;display:flex;align-items:center;justify-content:space-between;gap:12px;height:52px;padding:0 16px;background:rgba(11,7,9,.92);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+.top a{font-family:monospace;font-size:13px;color:var(--muted);text-decoration:none;white-space:nowrap}
+.top a:hover{color:var(--ink)}
+.top .lname{font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.serif{font-family:'Playfair Display',Georgia,serif}
+.eyebrow{font-size:10px;letter-spacing:.3em;text-transform:uppercase;color:var(--gold);font-weight:700}
+.hero{text-align:center;padding:40px 8px 28px;position:relative}
+.hero::before{content:"";position:absolute;inset:-40px -16px auto;height:340px;background:radial-gradient(60% 70% at 50% 20%,rgba(251,191,36,.22),transparent 70%);pointer-events:none}
+.hero h1{font-size:clamp(2.1rem,8vw,3.6rem);line-height:1.05;color:#fde68a;margin:14px 0 8px;overflow-wrap:anywhere;position:relative}
+.hero .sub{color:var(--ink2);font-size:15px;position:relative}
+.trophy{font-size:44px;line-height:1;position:relative}
+.podium{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:22px 0 6px;position:relative}
+.pod{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 8px;text-align:center;min-width:0}
+.pod .p{font-size:10px;letter-spacing:.18em;color:var(--muted);text-transform:uppercase}
+.pod .n{font-weight:800;font-size:14px;margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pod .v{font-family:monospace;font-size:12px;color:var(--ink2);margin-top:2px}
+.tiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:18px 0}
+.tile{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 8px;text-align:center}
+.tile .v{font-family:monospace;font-size:clamp(1rem,3.6vw,1.35rem);font-weight:700;color:var(--gold)}
+.tile .l{font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-top:4px}
+section{margin-top:34px}
+h2{font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:var(--gold2);font-weight:700;margin-bottom:12px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:600;text-align:right;padding:6px 6px 8px;border-bottom:1px solid var(--line)}
+th:first-child,th:nth-child(2){text-align:left}
+td{padding:9px 6px;border-bottom:1px solid #211a27;text-align:right;font-family:monospace;white-space:nowrap}
+td.team{text-align:left;font-family:inherit;white-space:normal;min-width:0}
+.tn{display:inline-flex;align-items:center;max-width:100%}
+.tn .dot,.tn .dash{flex-shrink:0}
+td.rank{text-align:left;color:var(--muted);width:28px}
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px;vertical-align:1px}
+.dash{display:inline-block;width:14px;height:3px;margin-right:6px;vertical-align:3px;border-radius:2px}
+.pl{font-size:11px;color:var(--muted)}
+.scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.supers{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.sup{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;min-width:0}
+.sup .k{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--gold2);font-weight:700}
+.sup .t{font-size:17px;font-weight:800;margin:8px 0 4px;overflow-wrap:anywhere}
+.sup .d{font-size:12px;color:var(--ink2);line-height:1.45}
+.sup .d b{color:var(--ink);font-weight:700}
+.chart{position:relative}
+.chart svg{display:block;width:100%;height:auto;touch-action:pan-y}
+.tip{position:absolute;pointer-events:none;background:#211a27;border:1px solid #3a3040;border-radius:8px;padding:8px 10px;font-size:12px;min-width:150px;max-width:230px;box-shadow:0 8px 24px rgba(0,0,0,.5);display:none;z-index:5}
+.tip .w{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+.tip .r{display:flex;justify-content:space-between;gap:10px;line-height:1.6}
+.tip .r span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.legend{display:flex;flex-wrap:wrap;gap:8px 14px;justify-content:center;margin-top:10px;font-size:11px;color:var(--ink2)}
+.legend span{display:inline-flex;align-items:center;max-width:100%}
+.bars .row{display:grid;grid-template-columns:minmax(0,9rem) 1fr 3rem;gap:10px;align-items:center;margin-bottom:8px;font-size:12px}
+.bars .row .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bars .track{height:10px;background:#211a27;border-radius:5px;overflow:hidden}
+.bars .fill{height:100%;border-radius:5px}
+.bars .num{font-family:monospace;color:var(--ink2);text-align:right}
+.studios{display:grid;gap:10px}
+details.studio{background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+details.studio summary{list-style:none;cursor:pointer;display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;align-items:center;padding:14px 16px}
+details.studio summary::-webkit-details-marker{display:none}
+details.studio summary .nm{font-weight:800;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+details.studio summary .tot{font-family:monospace;font-weight:700}
+details.studio .body{padding:0 16px 14px}
+.note{font-size:12px;color:var(--muted);margin-top:8px;line-height:1.5}
+.btn{display:inline-block;padding:11px 20px;border-radius:999px;background:var(--gold);color:#1a0608;font-weight:800;font-size:13px;text-decoration:none}
+.center{text-align:center}
+.msg{padding:80px 16px;text-align:center;color:var(--ink2)}
+.spin{width:26px;height:26px;border:2.5px solid var(--line);border-top-color:var(--gold);border-radius:50%;animation:s .7s linear infinite;margin:0 auto 14px}
+@keyframes s{to{transform:rotate(360deg)}}
+@media (max-width:560px){
+  .tiles{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .supers{grid-template-columns:minmax(0,1fr)}
+  .bars .row{grid-template-columns:minmax(0,6.5rem) 1fr 2.6rem}
+  td,th{padding-left:4px;padding-right:4px}
+  .hide-sm{display:none}
+}
+</style>
+</head>
+<body>
+<script src="/error-report.js"></script>
+<div class="top"><a id="back" href="/dashboard">‹ My Leagues</a><span class="lname" id="lname"></span><span style="width:60px"></span></div>
+<div class="wrap" id="app"><div class="msg"><div class="spin"></div>Loading the season…</div></div>
+
+<script>
+const SUPABASE_URL = "https://fymkwkbatklfynnhxrsf.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_HOd_kJ4JcmD2srkGPyjEPA_2LIzKFxG";
+const PARAMS = new URLSearchParams(location.search);
+const LEAGUE_ID = PARAMS.get('id');
+const VIEW_TOKEN = PARAMS.get('view');
+// same validated colors + order as league.html (teams 9-12 reuse 1-4, drawn dashed)
+const PALETTE = ["#3987e5","#d95926","#199e70","#c98500","#d55181","#0ca30c","#9085e9","#e66767"];
+const LEGACY_LEAGUES = new Set(['c388b799-6240-46c4-ba75-da8a0d2e8db5','dafbb0fd-7b29-41ac-8b15-dd002cdc6db7']);
+const OLD_PALETTE = ["#3498db","#e74c3c","#9b59b6","#e67e22","#2ecc71","#1abc9c","#e91e63","#f1c40f","#5b6ee1","#95a5a6"];
+
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmt = n => { n = Number(n) || 0; const a = Math.abs(n), s = n < 0 ? '-' : '';
+  if (a >= 1e9) return s + '$' + (a / 1e9).toFixed(2) + 'B'; if (a >= 1e6) return s + '$' + (a / 1e6).toFixed(1) + 'M';
+  if (a >= 1e3) return s + '$' + Math.round(a / 1e3) + 'K'; return s + '$' + Math.round(a); };
+const fmtM = m => fmt(Number(m) * 1e6);
+const pct = x => (x == null || !isFinite(x)) ? '—' : Math.round(x * 100) + '%';
+
+async function session() {
+  try {
+    const s = JSON.parse(localStorage.getItem('sef_session') || 'null');
+    if (!s || !s.access_token) return null;
+    if (s.expires_at && s.expires_at * 1000 > Date.now() + 60000) return s;
+    if (!s.refresh_token) return null;
+    const r = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, { method: 'POST',
+      headers: { apikey: SUPABASE_ANON_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify({ refresh_token: s.refresh_token }) });
+    if (!r.ok) return null;
+    const d = await r.json();
+    const ns = { access_token: d.access_token, refresh_token: d.refresh_token || s.refresh_token, expires_at: d.expires_at || Math.floor(Date.now()/1000) + 3600, user: d.user || s.user };
+    localStorage.setItem('sef_session', JSON.stringify(ns));
+    return ns;
+  } catch (e) { return null; }
+}
+let TOKEN = null;
+async function get(path) {
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, { headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${TOKEN || SUPABASE_ANON_KEY}` } });
+  if (!r.ok) throw new Error(path.split('?')[0] + ' ' + r.status);
+  return r.json();
+}
+// PostgREST caps a response at 1000 rows -- page through anything that can grow past it.
+async function getAll(path) {
+  const all = [];
+  for (let off = 0; off < 20000; off += 1000) {
+    const rows = await get(`${path}&limit=1000&offset=${off}`);
+    all.push(...rows);
+    if (rows.length < 1000) break;
+  }
+  return all;
+}
+async function rpc(name, args) {
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${name}`, { method: 'POST',
+    headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${TOKEN || SUPABASE_ANON_KEY}`, 'Content-Type': 'application/json' }, body: JSON.stringify(args) });
+  if (!r.ok) throw new Error(name + ' ' + r.status);
+  return r.json();
+}
+const soft = p => p.catch(() => null); // optional sections stay hidden if not readable (e.g. public viewers)
+
+function show(html) { document.getElementById('app').innerHTML = html; }
+
+async function main() {
+  if (!/^[0-9a-f-]{36}$/i.test(LEAGUE_ID || '')) { show('<div class="msg">This link is missing its league.</div>'); return; }
+  const s = await session();
+  TOKEN = s ? s.access_token : null;
+  const back = document.getElementById('back');
+  back.href = `/league?id=${LEAGUE_ID}${VIEW_TOKEN ? '&view=' + encodeURIComponent(VIEW_TOKEN) : ''}`;
+  back.textContent = '‹ League';
+  if (!s && !VIEW_TOKEN) { location.replace('/?next=' + encodeURIComponent(location.pathname + location.search)); return; }
+
+  const leagues = await get(`leagues?id=eq.${LEAGUE_ID}&select=id,name,season,season_number,is_public,finalized_at`).catch(() => []);
+  const league = leagues[0];
+  if (!league) { show('<div class="msg">This league is private or no longer exists.</div>'); return; }
+  document.getElementById('lname').textContent = league.name;
+  document.title = `${league.name} — Season Wrapped`;
+  const results = (await get(`league_results?league_id=eq.${LEAGUE_ID}&select=*`).catch(() => []))[0];
+  if (!results) {
+    show(`<div class="msg"><div class="serif" style="font-size:28px;color:#fde68a;margin-bottom:10px">Still rolling</div>
+      The Wrapped unlocks when the season is final, the day after Oscar Sunday.<br><br>
+      <a class="btn" href="${esc(back.href)}">Back to the league</a></div>`);
+    return;
+  }
+  const isMember = !!s;
+  const [snaps, members, names, draftItems, draftBids, acqWon, refunds, budgets] = await Promise.all([
+    soft(getAll(`weekly_bo_snapshots?league_id=eq.${LEAGUE_ID}&select=week_label,team,bo,snapshot_date&order=snapshot_date.asc,team.asc`)),
+    isMember ? soft(get(`league_members?league_id=eq.${LEAGUE_ID}&select=team_name,color,joined_at,user_id&order=joined_at.asc`)) : null,
+    soft(get(`${isMember ? 'league_member_names' : 'public_member_names'}?league_id=eq.${LEAGUE_ID}&select=team_name,display_name,joined_at&order=joined_at.asc`)),
+    isMember ? soft(get(`draft_items?league_id=eq.${LEAGUE_ID}&select=id,imdb_id,status,current_high_bid,nominated_by,started_at&order=started_at.asc`)) : null,
+    isMember ? soft(getAll(`draft_bids?league_id=eq.${LEAGUE_ID}&select=draft_item_id,user_id,amount&order=submitted_at.asc,id.asc`)) : null,
+    isMember ? soft(get(`acquisition_bids?league_id=eq.${LEAGUE_ID}&status=eq.won&select=user_id,imdb_id,amount`)) : null,
+    isMember ? soft(get(`refunds?league_id=eq.${LEAGUE_ID}&select=team_name,film_title,credit_amount`)) : null,
+    isMember ? soft(rpc('league_acquisitions_budgets', { p_league_id: LEAGUE_ID })) : null,
+  ]);
+  render(league, results, { snaps: snaps || [], members: members || names || [], draftItems, draftBids, acqWon, refunds, budgets });
+}
+
+function colorsFor(teamsInOrder, members) {
+  const chosen = {}; (members || []).forEach(m => { if (m.team_name && m.color) chosen[m.team_name] = m.color; });
+  const col = {}, dashed = {};
+  if (LEGACY_LEAGUES.has(LEAGUE_ID)) { teamsInOrder.forEach((t, i) => col[t] = chosen[t] || OLD_PALETTE[i % OLD_PALETTE.length]); return { col, dashed }; }
+  const used = new Set(Object.values(chosen)); const free = PALETTE.filter(c => !used.has(c)); let fi = 0, ri = 0;
+  teamsInOrder.forEach(t => { if (chosen[t]) col[t] = chosen[t]; else if (fi < free.length) col[t] = free[fi++]; else { col[t] = PALETTE[ri++ % PALETTE.length]; dashed[t] = true; } });
+  return { col, dashed };
+}
+
+function render(league, results, x) {
+  const st = (results.standings || []).map(t => ({ ...t, bo: +t.bo, oscar_m: +t.oscar_m, remaining_m: +t.remaining_m, total: +t.total, spent: +t.spent, rank: +t.rank }));
+  const order = []; (x.members || []).forEach(m => { if (m.team_name && !order.includes(m.team_name)) order.push(m.team_name); });
+  st.forEach(t => { if (!order.includes(t.team)) order.push(t.team); });
+  const { col, dashed } = colorsFor(order, x.members);
+  const swatch = t => dashed[t] ? `<span class="dash" style="background:repeating-linear-gradient(90deg,${col[t]} 0 5px,transparent 5px 8px)"></span>` : `<span class="dot" style="background:${col[t]}"></span>`;
+  const champs = st.filter(t => t.rank === 1), champ = champs[0], runner = st.find(t => t.rank > 1), last = st[st.length - 1];
+  const films = st.flatMap(t => (t.films || []).map(f => ({ ...f, team: t.team, bo: +f.bo, bid: +f.bid, noms: +f.noms, oscar_m: +f.oscar_m })));
+  const real = films.filter(f => !f.voided && f.imdb_id);
+  const totalBO = st.reduce((a, t) => a + t.bo, 0);
+  const totalNoms = real.reduce((a, f) => a + f.noms, 0);
+  const totalSpent = st.reduce((a, t) => a + t.spent, 0);
+  const seasonLbl = `${league.season}/${String(+league.season + 1).slice(-2)}`;
+
+  let h = '';
+  // ── hero ──
+  h += `<div class="hero"><div class="eyebrow">${esc(league.name)} · Season ${esc(league.season_number || 1)} · ${esc(seasonLbl)}</div>
+    <div class="trophy" aria-hidden="true" style="margin-top:18px">🏆</div>
+    <h1 class="serif">${esc(champs.map(t => t.team).join(' & '))}</h1>
+    <div class="sub">${champs.length > 1 ? 'share the title' : `${esc(champ.player || 'The champion')} takes the season`} with <b>${fmt(champ.total)}</b>${runner && champs.length === 1 ? ` — ${fmt(champ.total - runner.total)} ahead of ${esc(runner.team)}` : ''}</div>
+    <div class="podium">${st.slice(0, 3).map(t => `<div class="pod"><div class="p">${t.rank === 1 ? '1st' : t.rank === 2 ? '2nd' : t.rank === 3 ? '3rd' : t.rank + 'th'}</div><div class="n">${swatch(t.team)}${esc(t.team)}</div><div class="v">${fmt(t.total)}</div></div>`).join('')}</div>
+    ${last && st.length > 3 ? `<div class="note" style="position:relative">Sacko: <b style="color:var(--bad)">${esc(last.team)}</b></div>` : ''}</div>`;
+  // ── tiles ──
+  h += `<div class="tiles">
+    <div class="tile"><div class="v">${fmt(totalBO)}</div><div class="l">League box office</div></div>
+    <div class="tile"><div class="v">${real.length}</div><div class="l">Films owned</div></div>
+    <div class="tile"><div class="v">${totalNoms}</div><div class="l">Oscar noms</div></div>
+    <div class="tile"><div class="v">${fmtM(totalSpent)}</div><div class="l">Spent on films</div></div></div>`;
+  // ── final standings ──
+  h += `<section><h2>Final standings</h2><div class="card scroll"><table><thead><tr><th>#</th><th>Studio</th><th>Box office</th><th>Oscars</th><th class="hide-sm">Unspent</th><th>Total</th><th class="hide-sm">ROI</th></tr></thead><tbody>
+    ${st.map(t => `<tr><td class="rank">${t.rank}</td><td class="team"><span class="tn">${swatch(t.team)}<b>${esc(t.team)}</b></span><div class="pl">${esc(t.player || '')}</div></td>
+      <td>${fmt(t.bo)}</td><td style="color:${t.oscar_m > 0 ? 'var(--gold)' : 'var(--muted)'}">${t.oscar_m > 0 ? '+' + fmtM(t.oscar_m) : '—'}</td>
+      <td class="hide-sm">${t.remaining_m > 0 ? fmtM(t.remaining_m) : '—'}</td><td><b>${fmt(t.total)}</b></td><td class="hide-sm">${t.spent > 0 ? pct(t.bo / (t.spent * 1e6)) : '—'}</td></tr>`).join('')}
+    </tbody></table><div class="note">Total = box office + Oscar bonuses${st.some(t => t.remaining_m > 0) ? ' + unspent Acquisitions budget' : ''}. ROI = box office ÷ money spent on films.</div></div></section>`;
+  // ── the race ──
+  const weeks = []; const byWeek = {};
+  x.snaps.forEach(r => { if (!byWeek[r.snapshot_date]) { byWeek[r.snapshot_date] = { date: r.snapshot_date, label: r.week_label, v: {} }; weeks.push(byWeek[r.snapshot_date]); } byWeek[r.snapshot_date].v[r.team] = +r.bo; });
+  let leaderWeeks = {}, changes = 0, prev = null;
+  weeks.forEach(w => { let best = null, bv = 0; Object.entries(w.v).forEach(([t, v]) => { if (v > bv) { bv = v; best = t; } });
+    if (best) { leaderWeeks[best] = (leaderWeeks[best] || 0) + 1; if (prev && best !== prev) changes++; prev = best; } });
+  if (weeks.length > 1) {
+    h += `<section><h2>The box office race</h2><div class="card"><div class="chart" id="race"></div><div class="legend">${order.filter(t => st.some(z => z.team === t)).map(t => `<span>${swatch(t)}${esc(t)}</span>`).join('')}</div>
+      <div class="note">Weekly box office by studio (Oscar bonuses landed at the end). ${changes ? `The lead changed hands <b>${changes}</b> time${changes === 1 ? '' : 's'}.` : 'One studio led wire to wire.'}</div></div></section>`;
+    const lw = Object.entries(leaderWeeks).sort((a, b) => b[1] - a[1]); const maxW = lw.length ? lw[0][1] : 1;
+    h += `<section><h2>Weeks at #1</h2><div class="card bars">${lw.map(([t, n]) => `<div class="row"><span class="nm">${swatch(t)}${esc(t)}</span><div class="track"><div class="fill" style="width:${(n / maxW) * 100}%;background:${col[t] || '#888'}"></div></div><span class="num">${n}</span></div>`).join('')}</div></section>`;
+  }
+  // ── superlatives ──
+  const sups = [];
+  const top = (arr, key) => arr.slice().sort((a, b) => key(b) - key(a))[0];
+  const hit = top(real, f => f.bo);
+  if (hit && hit.bo > 0) sups.push(['Box office champ', hit.title, `<b>${fmt(hit.bo)}</b> for ${esc(hit.team)} on a ${fmtM(hit.bid)} bid.`]);
+  const steal = top(real.filter(f => f.bid > 0 && f.bo > 0), f => f.bo / f.bid);
+  if (steal) sups.push(['Steal of the season', steal.title, `${esc(steal.team)} paid ${fmtM(steal.bid)} and got <b>${fmt(steal.bo)}</b> — ${pct(steal.bo / (steal.bid * 1e6))} return.`]);
+  const bust = top(real.filter(f => f.bid > 0), f => f.bid * 1e6 - f.bo);
+  if (bust && bust.bid * 1e6 > bust.bo) sups.push(['Biggest bust', bust.title, `${esc(bust.team)} spent ${fmtM(bust.bid)}; it earned <b>${fmt(bust.bo)}</b>.`]);
+  const pricey = top(real, f => f.bid);
+  if (pricey) sups.push(['Priciest pick', pricey.title, `${esc(pricey.team)} paid <b>${fmtM(pricey.bid)}</b>${pricey.source === 'acquisition' ? ' in Acquisitions' : ' in the draft'}.`]);
+  const darling = top(real.filter(f => f.noms > 0), f => f.noms * 100 + f.oscar_m);
+  if (darling) sups.push(['Oscar darling', darling.title, `<b>${darling.noms} nomination${darling.noms === 1 ? '' : 's'}</b>, worth +${fmtM(darling.oscar_m)} to ${esc(darling.team)}.`]);
+  const bp = real.find(f => f.bp_win);
+  if (bp) sups.push(['Best Picture', bp.title, `Owned by <b>${esc(bp.team)}</b>.`]);
+  const roiTeam = top(st.filter(t => t.spent > 0), t => t.bo / t.spent);
+  if (roiTeam) sups.push(['Smartest spender', roiTeam.team, `<b>${pct(roiTeam.bo / (roiTeam.spent * 1e6))}</b> return on every dollar spent.`]);
+  const oscTeam = top(st.filter(t => t.oscar_m > 0), t => t.oscar_m);
+  if (oscTeam) sups.push(['Awards magnet', oscTeam.team, `<b>+${fmtM(oscTeam.oscar_m)}</b> in Oscar bonuses.`]);
+  if (x.draftItems && x.draftBids) {
+    const cnt = {}; x.draftBids.forEach(b => cnt[b.draft_item_id] = (cnt[b.draft_item_id] || 0) + 1);
+    const war = top(x.draftItems.filter(i => i.status === 'sold'), i => cnt[i.id] || 0);
+    const wf = war && films.find(f => f.imdb_id === war.imdb_id);
+    if (war && cnt[war.id] > 1) sups.push(['Bidding war', wf ? wf.title : 'A draft film', `<b>${cnt[war.id]} bids</b> before it sold for ${fmtM(war.current_high_bid)}${wf ? ' to ' + esc(wf.team) : ''}.`]);
+  }
+  if (x.acqWon && x.acqWon.length) {
+    const byTeam = {}; x.acqWon.forEach(a => { const f = films.find(z => z.imdb_id === a.imdb_id); if (f) byTeam[f.team] = (byTeam[f.team] || 0) + 1; });
+    const mv = Object.entries(byTeam).sort((a, b) => b[1] - a[1])[0];
+    if (mv) sups.push(['Market mover', mv[0], `Won <b>${mv[1]}</b> film${mv[1] === 1 ? '' : 's'} in Acquisitions.`]);
+  }
+  if (x.budgets && x.budgets.some(b => +b.weekend_pick_credits > 0)) {
+    const o = x.budgets.slice().sort((a, b) => b.weekend_pick_credits - a.weekend_pick_credits)[0];
+    sups.push(['Weekend oracle', o.team_name, `Earned <b>+${fmtM(o.weekend_pick_credits)}</b> from Weekend Picks.`]);
+  }
+  if (x.refunds && x.refunds.length) sups.push(['Second thoughts', `${x.refunds.length} refund${x.refunds.length === 1 ? '' : 's'}`, `Studios sent back ${x.refunds.length} film${x.refunds.length === 1 ? '' : 's'} for ${fmtM(x.refunds.reduce((a, r) => a + +r.credit_amount, 0))} in credit.`]);
+  if (sups.length) h += `<section><h2>Season superlatives</h2><div class="supers">${sups.map(([k, t, d]) => `<div class="sup"><div class="k">${esc(k)}</div><div class="t">${esc(t)}</div><div class="d">${d}</div></div>`).join('')}</div></section>`;
+  // ── studio by studio ──
+  h += `<section><h2>Studio by studio</h2><div class="studios">${st.map(t => {
+    const fs = (t.films || []).map(f => ({ ...f, bo: +f.bo, bid: +f.bid }));
+    const best = top(fs.filter(f => f.bid > 0 && f.bo > 0), f => f.bo / f.bid);
+    return `<details class="studio"${t.rank === 1 ? ' open' : ''}><summary><span style="color:var(--muted);font-family:monospace">${t.rank}</span><span class="nm">${swatch(t.team)}${esc(t.team)} <span class="pl">${esc(t.player || '')}</span></span><span class="tot">${fmt(t.total)}</span></summary>
+      <div class="body scroll"><table><thead><tr><th>Film</th><th></th><th>Bid</th><th>Box office</th><th class="hide-sm">Oscars</th></tr></thead><tbody>
+      ${fs.map(f => `<tr><td class="team" colspan="2">${esc(f.title)}${f.voided ? ' <span class="pl">(voided)</span>' : ''}${f.source === 'acquisition' ? ' <span class="pl">· acq.</span>' : ''}${best && best.pick_id === f.pick_id ? ' <span style="color:var(--good);font-size:11px">★ best value</span>' : ''}</td><td>${fmtM(f.bid)}</td><td>${fmt(f.bo)}</td><td class="hide-sm" style="color:${+f.oscar_m > 0 ? 'var(--gold)' : 'var(--muted)'}">${+f.noms > 0 ? `${f.noms}n${+f.wins + (f.bp_win ? 1 : 0) ? ' ' + (+f.wins + (f.bp_win ? 1 : 0)) + 'w' : ''} +${fmtM(f.oscar_m)}` : '—'}</td></tr>`).join('')}
+      </tbody></table></div></details>`; }).join('')}</div></section>`;
+  h += `<section class="center"><div class="note">Final as of ${new Date(results.finalized_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}.</div><br>
+    <a class="btn" href="${esc(document.getElementById('back').href)}">Back to the league</a></section>`;
+  show(h);
+  if (weeks.length > 1) {
+    const draw = () => drawRace(document.getElementById('race'), weeks, order.filter(t => st.some(z => z.team === t)), col, dashed);
+    draw(); let rt; addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(draw, 150); });
+  }
+}
+
+// Cumulative box office lines with a crosshair + tooltip (mouse and touch).
+function drawRace(el, weeks, teams, col, dashed) {
+  // drawn at the container's real pixel width so axis text stays 11px on phones
+  const W = Math.max(300, Math.round(el.clientWidth || 800)), H = Math.round(Math.min(320, Math.max(220, W * 0.55))), pl = 52, pr = 10, pt = 12, pb = 26;
+  const max = Math.max(1, ...weeks.flatMap(w => teams.map(t => w.v[t] || 0)));
+  const nice = (() => { const p = Math.pow(10, Math.floor(Math.log10(max))); return Math.ceil(max / p) * p; })();
+  const X = i => pl + (weeks.length === 1 ? 0 : i * (W - pl - pr) / (weeks.length - 1));
+  const Y = v => pt + (H - pt - pb) * (1 - v / nice);
+  let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Weekly cumulative box office by studio">`;
+  for (let k = 0; k <= 4; k++) { const v = nice * k / 4, y = Y(v);
+    s += `<line x1="${pl}" x2="${W - pr}" y1="${y}" y2="${y}" stroke="#2a2230" stroke-width="1"/><text x="${pl - 8}" y="${y + 4}" fill="#8a7f72" font-size="11" text-anchor="end" font-family="monospace">${fmt(v)}</text>`; }
+  const step = Math.max(1, Math.ceil(weeks.length / Math.max(3, Math.floor(W / 110))));
+  weeks.forEach((w, i) => { if (i % step === 0 || i === weeks.length - 1) s += `<text x="${X(i)}" y="${H - 6}" fill="#8a7f72" font-size="11" text-anchor="middle" font-family="monospace">${esc(w.label)}</text>`; });
+  teams.forEach(t => { const d = weeks.map((w, i) => `${i ? 'L' : 'M'}${X(i).toFixed(1)},${Y(w.v[t] || 0).toFixed(1)}`).join('');
+    s += `<path d="${d}" fill="none" stroke="${col[t]}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"${dashed[t] ? ' stroke-dasharray="7 5"' : ''}/>`; });
+  s += `<line id="xh" x1="0" x2="0" y1="${pt}" y2="${H - pb}" stroke="#fbbf24" stroke-opacity=".45" stroke-dasharray="3 3" visibility="hidden"/><g id="dots"></g>`;
+  s += `<rect x="${pl}" y="${pt}" width="${W - pl - pr}" height="${H - pt - pb}" fill="transparent" id="hit"/></svg><div class="tip" id="tip"></div>`;
+  el.innerHTML = s;
+  const svg = el.querySelector('svg'), tip = el.querySelector('#tip'), xh = el.querySelector('#xh'), dots = el.querySelector('#dots');
+  function at(clientX) {
+    const r = svg.getBoundingClientRect(); const vx = (clientX - r.left) * W / r.width;
+    const i = Math.max(0, Math.min(weeks.length - 1, Math.round((vx - pl) / ((W - pl - pr) / Math.max(1, weeks.length - 1)))));
+    const w = weeks[i];
+    xh.setAttribute('x1', X(i)); xh.setAttribute('x2', X(i)); xh.setAttribute('visibility', 'visible');
+    dots.innerHTML = teams.map(t => `<circle cx="${X(i)}" cy="${Y(w.v[t] || 0)}" r="5" fill="${col[t]}" stroke="#15101a" stroke-width="2"/>`).join('');
+    const rows = teams.map(t => [t, w.v[t] || 0]).sort((a, b) => b[1] - a[1]);
+    tip.innerHTML = `<div class="w">Week of ${esc(w.label)}</div>` + rows.map(([t, v]) => `<div class="r"><span><span class="dot" style="background:${col[t]}"></span>${esc(t)}</span><span style="font-family:monospace">${fmt(v)}</span></div>`).join('');
+    tip.style.display = 'block';
+    const px = X(i) * r.width / W; const tw = tip.offsetWidth;
+    tip.style.left = Math.max(0, Math.min(r.width - tw, px + (px > r.width / 2 ? -tw - 14 : 14))) + 'px'; tip.style.top = '8px';
+  }
+  function off() { tip.style.display = 'none'; xh.setAttribute('visibility', 'hidden'); dots.innerHTML = ''; }
+  svg.addEventListener('mousemove', e => at(e.clientX)); svg.addEventListener('mouseleave', off);
+  svg.addEventListener('touchstart', e => at(e.touches[0].clientX), { passive: true });
+  svg.addEventListener('touchmove', e => at(e.touches[0].clientX), { passive: true });
+  svg.addEventListener('touchend', () => setTimeout(off, 1800));
+}
+
+main().catch(e => { show(`<div class="msg">Couldn't load the Wrapped. Try again in a moment.</div>`); if (window.sefReportError) sefReportError('wrapped: ' + e.message, e.stack); });
+</script>
+</body>
+</html>

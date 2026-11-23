@@ -246,6 +246,7 @@ textarea.form-input{resize:vertical;min-height:70px}
   </div>
 </div>
 
+<script src="/error-report.js"></script>
 <script>
 const SUPABASE_URL = "https://fymkwkbatklfynnhxrsf.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_HOd_kJ4JcmD2srkGPyjEPA_2LIzKFxG";
@@ -270,11 +271,20 @@ let _deleteTargetId = null;
 // for the 2026 window. The 2027 window's end (100th Academy Awards) is
 // confirmed for March 5, 2028 -- update this constant if/when a season
 // beyond that is announced.
-const SEASONS = [
+let SEASONS = [
   { id: 'season-2026', label: '2026 Season', start: '2026-03-16', end: '2027-03-14' },
   { id: 'season-2027', label: '2027 Season', start: '2027-03-15', end: '2028-03-05' },
 ];
+let SEASON_ROWS = [];   // raw rows from public.seasons
 let activeSeasonId = getCurrentSeasonId();
+async function loadSeasons() {
+  const { ok, data } = await sbFetch('/rest/v1/seasons?select=*&order=season.asc');
+  if (ok && Array.isArray(data) && data.length) {
+    SEASON_ROWS = data;
+    SEASONS = data.map(r => ({ id: 'season-' + r.season, label: r.season + ' Season', start: r.window_start, end: r.window_end }));
+    if (!SEASONS.find(x => x.id === activeSeasonId) && activeSeasonId !== 'oscars') activeSeasonId = getCurrentSeasonId();
+  }
+}
 
 // Which season "today" falls in — used both as the default tab and as the
 // home for films with no release date yet (see filmSeasonId below).
@@ -412,13 +422,22 @@ async function init() {
   if (dname) dname.textContent = currentProfile.display_name || '—';
   if (demail) demail.textContent = currentSession.user?.email || '—';
 
+  await loadSeasons();
+  activeSeasonId = getCurrentSeasonId();
   await loadFilms();
   render();
 }
 
 async function loadFilms() {
-  const { ok, data } = await sbFetch(`/rest/v1/universe_films?select=*&order=release_date.asc.nullslast`);
-  films = (ok && Array.isArray(data)) ? data : [];
+  // PostgREST returns at most 1000 rows per request -- the Universe outgrows that after a few seasons
+  const all = [];
+  for (let off = 0; off < 20000; off += 1000) {
+    const { ok, data } = await sbFetch(`/rest/v1/universe_films?select=*&order=release_date.asc.nullslast,id.asc&limit=1000&offset=${off}`);
+    if (!ok || !Array.isArray(data)) break;
+    all.push(...data);
+    if (data.length < 1000) break;
+  }
+  films = all;
 }
 
 // ── RENDER ────────────────────────────────────────────────────────────────────
@@ -434,10 +453,11 @@ function render() {
 
     <div class="season-tabs">
       ${SEASONS.map(s => `
-        <button class="season-tab ${activeSeasonId===s.id?'active':''}" onclick="handleSeasonTab('${s.id}')">${s.label}</button>
+        <button class="season-tab ${activeSeasonId===s.id?'active':''}" onclick="handleSeasonTab('${escHtml(s.id)}')">${escHtml(s.label)}</button>
       `).join('')}
+      <button class="season-tab ${activeSeasonId==='oscars'?'active':''}" onclick="handleSeasonTab('oscars')">&#127942; Seasons &amp; Oscars</button>
     </div>
-
+    ${activeSeasonId === 'oscars' ? '<div id="oscarPanel"></div>' : `
     <div class="toolbar">
       <div class="search-box">
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.3"/><path d="M12.5 12.5L9.5 9.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
@@ -455,9 +475,139 @@ function render() {
       }
     </div>
 
-    <div id="tableContainer"></div>
+    <div id="tableContainer"></div>`}
   `;
-  renderTable();
+  if (activeSeasonId === 'oscars') renderOscarPanel(); else renderTable();
+}
+
+// ── SEASONS & OSCARS (site admin) ─────────────────────────────────────────────
+// Oscar results are entered ONCE per season here and score every league automatically.
+// Marking a season's results final lets the daily Apps Script job (or the button below)
+// freeze every league of that season, crown winners and unlock the Wrapped pages.
+const OSCAR_CATEGORIES = ["Best Picture","Best Director","Best Actress","Best Actor","Best Supporting Actress",
+  "Best Supporting Actor","Best Adapted Screenplay","Best Original Screenplay","Best Casting","Best Cinematography",
+  "Best Costume Design","Best Film Editing","Best Makeup and Hairstyling","Best Production Design","Best Score",
+  "Best Song","Best Sound","Best Visual Effects","Best Animated Feature","Best Documentary Feature","Best International Film"];
+const PERFORMER_CATS = new Set(["Best Director","Best Actress","Best Actor","Best Supporting Actress","Best Supporting Actor","Best Song"]);
+let oscarSeason = null;
+let oscarRows = [];
+
+async function renderOscarPanel() {
+  const el = document.getElementById('oscarPanel');
+  if (!oscarSeason) oscarSeason = (SEASON_ROWS.find(r => r.oscar_date >= new Date().toISOString().slice(0, 10)) || SEASON_ROWS[SEASON_ROWS.length - 1] || {}).season;
+  const srow = SEASON_ROWS.find(r => r.season === oscarSeason) || {};
+  const { ok, data } = await sbFetch(`/rest/v1/oscar_results?season=eq.${encodeURIComponent(oscarSeason || '')}&select=*&order=category.asc,id.asc`);
+  oscarRows = ok && Array.isArray(data) ? data : [];
+  const inWindow = films.filter(f => f.imdb_id && f.release_date && srow.window_start && f.release_date >= srow.window_start && f.release_date <= srow.window_end)
+    .sort((a, b) => (a.title || '').localeCompare(b.title || ''));
+  const byCat = {}; oscarRows.forEach(r => (byCat[r.category] = byCat[r.category] || []).push(r));
+  const winners = oscarRows.filter(r => r.is_winner).length;
+  const inp = 'background:#111119;border:1px solid #2a2a3a;border-radius:6px;color:#e8e8f0;padding:7px 9px;font-size:13px';
+  el.innerHTML = `
+    <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:8px 0 16px">
+      <label style="font-size:12px;color:#8a8a9e">Season
+        <select style="${inp};margin-left:6px" onchange="oscarSeason=this.value;renderOscarPanel()">
+          ${SEASON_ROWS.map(r => `<option value="${escHtml(r.season)}" ${r.season === oscarSeason ? 'selected' : ''}>${escHtml(r.season)}/${String(+r.season + 1).slice(-2)}</option>`).join('')}
+        </select></label>
+      <span style="font-size:12px;color:#8a8a9e">${oscarRows.length} nominations &middot; ${winners}/${OSCAR_CATEGORIES.length} winners</span>
+    </div>
+    <div style="border:1px solid #222233;border-radius:12px;padding:16px;background:#12121c;margin-bottom:16px">
+      <div style="font-size:11px;letter-spacing:.15em;text-transform:uppercase;color:#d4a843;font-weight:700;margin-bottom:10px">Season calendar</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px">
+        ${[['window_start','Eligibility starts'],['window_end','Eligibility ends'],['nominations_date','Nominations'],['oscar_date','Oscar Sunday']].map(([k, l]) =>
+          `<label style="font-size:11px;color:#8a8a9e">${l}<br><input type="date" style="${inp};width:100%;margin-top:4px" value="${escHtml(srow[k] || '')}" onchange="saveSeasonField('${k}', this.value)"/></label>`).join('')}
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:14px">
+        <label style="font-size:13px;display:flex;align-items:center;gap:8px"><input type="checkbox" ${srow.results_final ? 'checked' : ''} onchange="saveSeasonField('results_final', this.checked)"/> Oscar results are final</label>
+        <button class="btn btn-primary btn-sm" onclick="runFinalize()" ${srow.results_final ? '' : 'disabled title="Mark the results final first"'}>Finalize leagues now</button>
+        ${srow.finalized_at ? `<span style="font-size:12px;color:#34d399">Finalized ${escHtml(new Date(srow.finalized_at).toLocaleDateString())}</span>` : '<span style="font-size:12px;color:#8a8a9e">The daily job finalizes automatically once results are final and Oscar Sunday has passed.</span>'}
+      </div>
+    </div>
+    <details style="border:1px solid #222233;border-radius:12px;padding:12px 16px;background:#12121c;margin-bottom:16px">
+      <summary style="cursor:pointer;font-size:13px;font-weight:700">Add the next season</summary>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-top:12px">
+        <label style="font-size:11px;color:#8a8a9e">Season (year)<br><input id="ns-season" style="${inp};width:100%;margin-top:4px" placeholder="2028" maxlength="4"/></label>
+        <label style="font-size:11px;color:#8a8a9e">Eligibility starts<br><input id="ns-start" type="date" style="${inp};width:100%;margin-top:4px"/></label>
+        <label style="font-size:11px;color:#8a8a9e">Oscar Sunday (= eligibility end)<br><input id="ns-oscar" type="date" style="${inp};width:100%;margin-top:4px"/></label>
+      </div>
+      <button class="btn btn-secondary btn-sm" style="margin-top:12px" onclick="addSeason()">Add season</button>
+    </details>
+    <datalist id="oscarFilmList">${inWindow.map(f => `<option value="${escHtml(f.title)}"></option>`).join('')}</datalist>
+    <div style="display:grid;gap:10px">
+      ${OSCAR_CATEGORIES.map((cat, ci) => {
+        const rows = byCat[cat] || [];
+        const slots = cat === 'Best Picture' ? 10 : 5;
+        return `<div style="border:1px solid #222233;border-radius:12px;padding:12px 14px;background:#12121c">
+          <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:8px">
+            <div style="font-weight:700;font-size:14px">${escHtml(cat)}</div>
+            <div style="font-size:11px;color:${rows.length > slots ? '#ef4444' : '#8a8a9e'}">${rows.length}/${slots}</div>
+          </div>
+          ${rows.map(r => `<div style="display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;align-items:center;padding:6px 0;border-top:1px solid #1c1c2a">
+              <label title="Winner" style="display:flex;align-items:center"><input type="radio" name="win-${ci}" ${r.is_winner ? 'checked' : ''} onchange="setWinner(${r.id}, '${ci}')"/></label>
+              <div style="min-width:0;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.is_winner ? '&#127942; ' : ''}${escHtml(r.film_title)}${r.performer ? ` <span style="color:#8a8a9e">&middot; ${escHtml(r.performer)}</span>` : ''}${r.imdb_id ? '' : ' <span style="color:#ef4444;font-size:11px" title="Not linked to a Universe film -- scores nothing">(not in Universe)</span>'}</div>
+              <button class="icon-btn" title="Remove" onclick="removeNominee(${r.id})">&times;</button></div>`).join('')}
+          <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">
+            <input list="oscarFilmList" id="add-film-${ci}" placeholder="Film" maxlength="120" style="${inp};flex:2;min-width:150px"/>
+            ${PERFORMER_CATS.has(cat) ? `<input id="add-perf-${ci}" placeholder="${cat === 'Best Song' ? 'Song' : 'Name'}" maxlength="120" style="${inp};flex:1;min-width:120px"/>` : ''}
+            <button class="btn btn-secondary btn-sm" onclick="addNominee(${ci})">Add</button>
+          </div></div>`;
+      }).join('')}
+    </div>`;
+}
+
+async function saveSeasonField(key, value) {
+  const { ok, data } = await sbFetch(`/rest/v1/seasons?season=eq.${encodeURIComponent(oscarSeason)}`, {
+    method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ [key]: value === '' ? null : value }) });
+  if (!ok) { showToast((data && data.message) || 'Could not save', true); return; }
+  await loadSeasons(); showToast('Saved'); renderOscarPanel();
+}
+
+async function addSeason() {
+  const season = document.getElementById('ns-season').value.trim();
+  const start = document.getElementById('ns-start').value, oscar = document.getElementById('ns-oscar').value;
+  if (!/^\d{4}$/.test(season) || !start || !oscar) { showToast('Fill in the year and both dates', true); return; }
+  const { ok, data } = await sbFetch('/rest/v1/seasons', { method: 'POST', headers: { Prefer: 'return=minimal' },
+    body: JSON.stringify({ season, window_start: start, window_end: oscar, oscar_date: oscar }) });
+  if (!ok) { showToast((data && data.message) || 'Could not add season', true); return; }
+  oscarSeason = season; await loadSeasons(); showToast('Season added'); render();
+}
+
+async function addNominee(ci) {
+  const cat = OSCAR_CATEGORIES[ci];
+  const title = (document.getElementById('add-film-' + ci).value || '').trim();
+  const perfEl = document.getElementById('add-perf-' + ci);
+  const performer = perfEl ? perfEl.value.trim() || null : null;
+  if (!title) return;
+  const film = films.find(f => (f.title || '').trim().toLowerCase() === title.toLowerCase() && f.imdb_id);
+  if (!film && !confirm(`"${title}" isn't in the Universe, so it won't score for anyone. Add it anyway?`)) return;
+  const { ok, data } = await sbFetch('/rest/v1/oscar_results', { method: 'POST', headers: { Prefer: 'return=minimal' },
+    body: JSON.stringify({ season: oscarSeason, category: cat, imdb_id: film ? film.imdb_id : null, film_title: film ? film.title : title, performer }) });
+  if (!ok) { showToast((data && data.message) || 'Could not add', true); return; }
+  renderOscarPanel();
+}
+
+async function removeNominee(id) {
+  const { ok, data } = await sbFetch(`/rest/v1/oscar_results?id=eq.${id}`, { method: 'DELETE' });
+  if (!ok) { showToast((data && data.message) || 'Could not remove', true); return; }
+  renderOscarPanel();
+}
+
+async function setWinner(id, ci) {
+  const cat = OSCAR_CATEGORIES[+ci];
+  // clear the old winner first (the database allows one winner per category)
+  await sbFetch(`/rest/v1/oscar_results?season=eq.${encodeURIComponent(oscarSeason)}&category=eq.${encodeURIComponent(cat)}&is_winner=eq.true`, {
+    method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ is_winner: false }) });
+  const { ok, data } = await sbFetch(`/rest/v1/oscar_results?id=eq.${id}`, { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ is_winner: true }) });
+  if (!ok) showToast((data && data.message) || 'Could not set winner', true);
+  renderOscarPanel();
+}
+
+async function runFinalize() {
+  if (!confirm(`Finalize every ${oscarSeason} league now? Standings freeze and winners are announced. This can't be undone from here.`)) return;
+  const { ok, data } = await sbFetch('/rest/v1/rpc/finalize_season', { method: 'POST', body: JSON.stringify({ p_season: oscarSeason }) });
+  if (!ok) { showToast((data && data.message) || 'Finalize failed', true); return; }
+  showToast(data.status === 'finalized' ? `Finalized ${data.leagues.length} league(s)` : `Not yet: ${data.reason}`, data.status !== 'finalized');
+  await loadSeasons(); renderOscarPanel();
 }
 
 function getVisibleFilms() {
@@ -617,7 +767,7 @@ function renderRow(f) {
       <td class="col-festival"><input class="cell-input" type="date" value="${f.festival_protected_until||''}"
         onchange="saveField(${f.id},'festival_protected_until',this.value||null,this)" title="If set, this film is protected from Acquisitions until this date"/></td>
       <td class="col-actions">
-        <button class="icon-btn" title="Delete film" onclick="openDeleteModal(${f.id},'${escHtml(f.title).replace(/'/g,"\\'")}')">
+        <button class="icon-btn" title="Delete film" onclick="openDeleteModal(${f.id})">
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2.5 3.5h9M5.5 3.5V2a1 1 0 0 1 1-1h1a1 1 0 0 1 1 1v1.5M11 3.5l-.6 8.1a1 1 0 0 1-1 .9H4.6a1 1 0 0 1-1-.9L3 3.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
       </td>
@@ -829,8 +979,9 @@ async function handleSaveFilm() {
 }
 
 // ── DELETE ────────────────────────────────────────────────────────────────────
-function openDeleteModal(filmId, title) {
+function openDeleteModal(filmId) {
   if (!isAdmin) return;
+  const title = (films.find(x => x.id === filmId) || {}).title || 'this film';
   _deleteTargetId = filmId;
   document.getElementById('deleteModalBody').textContent = `This will permanently remove "${title}". This cannot be undone.`;
   openModal('deleteModal');
@@ -883,7 +1034,7 @@ function setLoading(btnId, loading, label) {
 
 function escHtml(str) {
   if (str === null || str === undefined) return '';
-  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
 
 function showToast(msg, isError) {

@@ -57,10 +57,22 @@ var UF_SUPABASE_KEY = ufSecret("SUPABASE_SERVICE_KEY");
 // Oscar-to-Oscar windows, matching universe.html's SEASONS constant.
 // Add a 2028 entry here (and to universe.html's SEASONS) once that
 // ceremony's window boundaries are known.
-var UF_SEASON_WINDOWS = [
+var UF_SEASON_WINDOWS = [   // fallback only -- the seasons table is the source of truth
   { start: "2026-03-16", end: "2027-03-14" },
   { start: "2027-03-15", end: "2028-03-05" },
 ];
+
+// Season windows from public.seasons (added on the Universe page -> Seasons & Oscars), so a new
+// season needs no code change here. activeOnly skips seasons that ended over a month ago.
+function ufSeasonWindows(activeOnly) {
+  var rows = ufGetAll("seasons?select=season,window_start,window_end&order=season.asc");
+  var list = (rows && rows.length)
+    ? rows.map(function(r) { return { season: r.season, start: r.window_start, end: r.window_end }; })
+    : UF_SEASON_WINDOWS;
+  if (!activeOnly) return list;
+  var cutoff = Utilities.formatDate(new Date(Date.now() - 31 * 86400000), "America/Los_Angeles", "yyyy-MM-dd");
+  return list.filter(function(w) { return w.end >= cutoff; });
+}
 
 // Curated studio/distributor allowlist: major studios + prestige/arthouse
 // distributors (the latter is what keeps foreign-language and festival
@@ -233,7 +245,7 @@ function scrapeUniverseFilms() {
   var added = [], updated = [], skippedShorts = [], failed = [];
   var candidateCount = 0;
 
-  UF_SEASON_WINDOWS.forEach(function(season) {
+  ufSeasonWindows(true).forEach(function(season) {
     Logger.log("--- Season window " + season.start + " to " + season.end + " ---");
     var page = 1, totalPages = 1;
     do {

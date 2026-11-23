@@ -100,6 +100,7 @@ body.endgame::after{
 </head>
 <body>
 <div id="root"></div>
+<script src="/error-report.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
@@ -228,6 +229,46 @@ let PUBLIC_VIEW_MODE = false;
 let LEAGUE_CONTEXT = null;
 let USER_MEMBERSHIP = null;
 let LEAGUE_MEMBERS = [];
+// Season calendar (seasons table), this season's real Oscar results, and -- once the season is
+// over -- the league's frozen final standings (league_results). Loaded by loadSeasonData().
+let SEASONS = {};
+let OSCAR_BY_IMDB = {};   // imdb_id -> {noms, wins, bpWin, detail:[{category,performer,won}]}
+let OSCARS_ANNOUNCED = false;
+let FINAL_RESULT = null;  // {winner_team, finalized_at, standings:[...]}
+
+async function loadSeasonData(){
+  try{
+    const rows=await supabaseFetch("seasons","select=*");
+    SEASONS={}; (rows||[]).forEach(r=>{SEASONS[r.season]=r;});
+  }catch(e){ console.warn("[seasons] fetch failed:", e.message); }
+  const season=LEAGUE_CONTEXT?.season;
+  if(season){
+    try{
+      const rows=await supabaseFetch("oscar_results",`season=eq.${encodeURIComponent(season)}&select=imdb_id,category,performer,is_winner`);
+      const by={};
+      (rows||[]).forEach(r=>{
+        if(!r.imdb_id) return;
+        const o=by[r.imdb_id]||(by[r.imdb_id]={noms:0,wins:0,bpWin:false,detail:[]});
+        o.noms++;
+        if(r.is_winner){ if(r.category==="Best Picture") o.bpWin=true; else o.wins++; }
+        o.detail.push({category:r.category,performer:r.performer,won:!!r.is_winner});
+      });
+      OSCAR_BY_IMDB=by; OSCARS_ANNOUNCED=(rows||[]).length>0;
+    }catch(e){ console.warn("[oscars] fetch failed:", e.message); }
+  }
+  if(LEAGUE_CONTEXT?.finalized_at){
+    try{
+      const rows=await supabaseFetch("league_results",`league_id=eq.${LEAGUE_UUID}&select=*`);
+      FINAL_RESULT=rows?.[0]||null;
+    }catch(e){ console.warn("[final results] fetch failed:", e.message); }
+  }
+}
+// $M of Oscar bonus a film earns under this league's rules
+function oscarPointsFor(o){
+  if(!o) return 0;
+  const l=LEAGUE_CONTEXT||{};
+  return o.noms*(l.oscar_nom_bonus??25)+o.wins*(l.oscar_win_bonus??25)+(o.bpWin?(l.bp_bonus??50):0);
+}
 
 async function verifyPublicView() {
   if (!PUBLIC_VIEW_TOKEN || !LEAGUE_UUID) return false;
@@ -253,13 +294,25 @@ async function supabaseFetch(table, params="") {
   return res.json();
 }
 
+// PostgREST returns at most 1000 rows per request; page through anything that can grow past it
+// (weekly snapshots are teams x weeks). Needs a stable order in params.
+async function supabaseFetchAll(table, params="") {
+  const all=[];
+  for(let offset=0; offset<20000; offset+=1000){
+    const rows=await supabaseFetch(table, `${params}&limit=1000&offset=${offset}`);
+    all.push(...rows);
+    if(rows.length<1000) break;
+  }
+  return all;
+}
+
 async function loadLeagueContext() {
   try {
     // Public viewers never need (and must never receive) invite_code or
     // created_by, so their leagues lookup asks for a narrower column set —
     // this is app-level hygiene, not the security boundary (RLS is).
     const leagueSelect = PUBLIC_VIEW_MODE
-      ? "id,name,season,season_number,budget,draft_status,num_players,min_bid,max_bid,oscar_nom_bonus,oscar_win_bonus,bp_bonus,festival_picks,draft_open_date,draft_close_date,season_end_date,is_public,sacko_punishment"
+      ? "id,name,season,season_number,budget,draft_status,num_players,min_bid,max_bid,oscar_nom_bonus,oscar_win_bonus,bp_bonus,festival_picks,draft_open_date,draft_close_date,season_end_date,is_public,sacko_punishment,finalized_at"
       : "*";
     const leagues = await supabaseFetch("leagues", `id=eq.${LEAGUE_UUID}&select=${leagueSelect}`);
     if (leagues.length) LEAGUE_CONTEXT = leagues[0];
@@ -305,10 +358,11 @@ async function loadLeagueContext() {
 function seasonDates(){
   const w=seasonWindowFor(LEAGUE_CONTEXT?.season)||seasonWindowFor(2026);
   const start=new Date(w.start+"T00:00:00"), end=new Date(w.end+"T00:00:00");
+  const s=SEASONS[String(LEAGUE_CONTEXT?.season)];
   const fmtLong=d=>d.toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"});
   return {
-    oscarDate:end,                                          // Oscar ceremony = end of the eligibility window
-    nomsDate:new Date(end.getFullYear(),0,23),              // Jan 23 -- typical Oscar nominations date
+    oscarDate:s?.oscar_date?new Date(s.oscar_date+"T00:00:00"):end,  // Oscar ceremony (normally = end of the eligibility window)
+    nomsDate:s?.nominations_date?new Date(s.nominations_date+"T00:00:00"):new Date(end.getFullYear(),0,23), // Jan 23 if not set yet
     endgameStart:new Date(end.getFullYear(),0,1),           // Jan 1 of the awards year -- endgame auto-trigger
     eligibilityStart:fmtLong(start), eligibilityEnd:fmtLong(end),
     start:w.start, end:w.end
@@ -318,9 +372,11 @@ const ENDGAME_FILMS_LEFT_THRESHOLD = 5; // OR trigger when ≤5 films unreleased
 // Rebuilt per league in the main data effect below from the teams that appear in that
 // league's picks (colors, studio display names, account-level player names).
 let EXEC_COLORS = {};
-// Rotation used to assign a color to each team_name in a real league, in
-// join order. Distinct enough to tell apart at a glance up to ~10 teams.
-const TEAM_COLOR_PALETTE = ["#3498db","#e74c3c","#9b59b6","#e67e22","#2ecc71","#1abc9c","#e91e63","#f1c40f","#5b6ee1","#95a5a6"];
+// 8 team colors, validated (color-blind separation, contrast) on every dark surface this page
+// uses. Same list as sef_team_palette() in the database, which only accepts these. Teams 9-12
+// reuse colors 1-4 and are drawn dashed (EXEC_DASHED) so no two teams look identical.
+const TEAM_COLOR_PALETTE = ["#3987e5","#d95926","#199e70","#c98500","#d55181","#0ca30c","#9085e9","#e66767"];
+let EXEC_DASHED = {};
 
 // ── Endgame detection ─────────────────────────────────────────────────────────
 // Endgame activates when EITHER:
@@ -473,6 +529,8 @@ function LineChart({data,teams,valueFormatter,title,colorMap,labelMap}){
           const len=lengths[team]||0;
           const delay=ti*120;
           const animated=inView&&len>0;
+          if(EXEC_DASHED[team]) return(<path key={team} ref={el=>pathRefs.current[team]=el} d={path} fill="none"
+            stroke={getColor(team)} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" opacity={0.85} strokeDasharray="7 5"/>);
           return(<path key={team} ref={el=>pathRefs.current[team]=el} d={path} fill="none"
             stroke={getColor(team)} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" opacity={0.8}
             strokeDasharray={len>0?len:undefined}
@@ -480,10 +538,10 @@ function LineChart({data,teams,valueFormatter,title,colorMap,labelMap}){
             style={animated?{animation:`drawLine 1.2s ease-out ${delay}ms both`,['--line-len']:len}:undefined}
           />);
         })}
-        {teams.map(team=>data.map((_,i)=>{const p=getP(i,team);return<circle key={`${team}-${i}`} cx={p.x} cy={p.y} r={i===activeIdx?5:3} fill={getColor(team)} opacity={i===activeIdx?1:0.5}/>}))}
+        {teams.map(team=>data.map((_,i)=>{const p=getP(i,team);const d=EXEC_DASHED[team];return<circle key={`${team}-${i}`} cx={p.x} cy={p.y} r={i===activeIdx?5:3} fill={d?"#111119":getColor(team)} stroke={d?getColor(team):"none"} strokeWidth={d?1.5:0} opacity={i===activeIdx?1:0.5}/>}))}
       </svg>
       <div style={{display:"flex",gap:14,justifyContent:"center",marginTop:8,flexWrap:"wrap"}}>
-        {teams.map(t=>(<div key={t} style={{display:"flex",alignItems:"center",gap:4,fontSize:11,color:"#8a8a9e"}}><div style={{width:12,height:3,background:getColor(t),borderRadius:2}}/>{getLabel(t)}</div>))}
+        {teams.map(t=>(<div key={t} style={{display:"flex",alignItems:"center",gap:4,fontSize:11,color:"#8a8a9e",maxWidth:"100%",minWidth:0}}><div style={{width:14,height:3,flexShrink:0,borderRadius:2,background:EXEC_DASHED[t]?`repeating-linear-gradient(90deg,${getColor(t)} 0 5px,transparent 5px 8px)`:getColor(t)}}/><span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{getLabel(t)}</span></div>))}
       </div>
     </div>
   );
@@ -905,6 +963,34 @@ function PurchasePriceTab({films,data}){
 }
 
 // ── ENDGAME COUNTDOWN BANNER — shows days until Oscar noms and Oscar Sunday ────
+// Shown at the top of a finished league: the champion and the way into the season Wrapped.
+function SeasonFinalBanner({data}){
+  if(!FINAL_RESULT) return null;
+  const top=(FINAL_RESULT.standings||[]).filter(t=>Number(t.rank)===1);
+  const second=(FINAL_RESULT.standings||[]).find(t=>Number(t.rank)>1);
+  const champ=top[0];
+  if(!champ) return null;
+  const margin=second?Number(champ.total)-Number(second.total):0;
+  const href=`/wrapped?id=${LEAGUE_UUID}${PUBLIC_VIEW_TOKEN?`&view=${encodeURIComponent(PUBLIC_VIEW_TOKEN)}`:""}`;
+  return(
+    <div style={{position:"relative",overflow:"hidden",borderRadius:14,padding:"22px 18px",margin:"4px 0 14px",textAlign:"center",
+      background:"radial-gradient(120% 140% at 50% 0%, rgba(251,191,36,0.22), rgba(26,6,8,0.9) 60%)",border:"1px solid rgba(251,191,36,0.45)"}}>
+      <div style={{fontSize:10,letterSpacing:"0.3em",color:"#fbbf24",fontWeight:700}}>SEASON COMPLETE</div>
+      <div style={{fontSize:34,lineHeight:1,margin:"10px 0 6px"}} aria-hidden="true">🏆</div>
+      <div style={{fontFamily:"'Playfair Display',Georgia,serif",fontSize:"clamp(1.5rem,6vw,2.3rem)",fontWeight:700,color:"#fde68a",overflowWrap:"anywhere"}}>
+        {top.map(t=>t.team).join(" & ")}
+      </div>
+      <div style={{fontSize:13,color:"#e8d9b0",marginTop:6}}>
+        {top.length>1?"tie for the title":`${champ.player||"The champion"} wins ${LEAGUE_CONTEXT?.name||"the league"}`} · {fmt(Number(champ.total))}
+        {second&&top.length===1&&<span style={{color:"#c9a76b"}}> · by {fmt(margin)}</span>}
+      </div>
+      <a href={href} style={{display:"inline-block",marginTop:16,padding:"11px 20px",borderRadius:999,background:"#fbbf24",color:"#1a0608",fontWeight:800,fontSize:13,letterSpacing:"0.04em",textDecoration:"none"}}>
+        See the Season Wrapped →
+      </a>
+    </div>
+  );
+}
+
 function EndgameCountdownBanner({theme}){
   const daysToNoms=daysUntil(seasonDates().nomsDate);
   const daysToOscars=daysUntil(seasonDates().oscarDate);
@@ -963,6 +1049,7 @@ function App(){
     async function loadData(){
       // Load league context first
       await loadLeagueContext();
+      await loadSeasonData();
       // Sync module-level context into React state so components re-render
       if(LEAGUE_CONTEXT) setLeagueCtx(LEAGUE_CONTEXT);
       if(USER_MEMBERSHIP) setMembership(USER_MEMBERSHIP);
@@ -985,15 +1072,25 @@ function App(){
             // real, valid state for a brand-new league (no picks drafted
             // yet), not a failure -- it should render an empty slate, not
             // silently show anything but an empty slate.
+            // Once the season is final, every number comes from the frozen results, so a film that
+            // keeps earning after Oscar Sunday can't change who won.
+            const frozenByPick = {};
+            (FINAL_RESULT?.standings||[]).forEach(t=>(t.films||[]).forEach(f=>{frozenByPick[f.pick_id]=f;}));
             const films = rows.map(r=>{
               const uf = r.universe_films || null; // null for a Festival Futures placeholder pick
               const release = uf?.release_date || r.release_date || null;
+              const frozen = frozenByPick[r.id];
+              const osc = r.imdb_id ? OSCAR_BY_IMDB[r.imdb_id] : null;
               return {
                 id:       r.id, // the league_picks row id -- needed for refund_my_film()
                 title:    uf?.title || r.title,
                 awardLabel: r.imdb_id ? (r.award_label||null) : null, // festival award this pick was resolved from, if any
                 bid:      Number(r.bid),
-                bo:       Number(uf?.bo || 0),
+                bo:       frozen ? Number(frozen.bo||0) : Number(uf?.bo || 0),
+                noms:     frozen ? Number(frozen.noms||0) : (osc?.noms||0),
+                oscarWins:frozen ? Number(frozen.wins||0)+(frozen.bp_win?1:0) : (osc ? osc.wins+(osc.bpWin?1:0) : 0),
+                oscarM:   r.voided ? 0 : (frozen ? Number(frozen.oscar_m||0) : oscarPointsFor(osc)),
+                oscarDetail: frozen ? (frozen.oscar_detail||[]) : (osc?.detail||[]),
                 team:     r.team_name,
                 release:  release,
                 status:   !release ? "tba" : (new Date(release) <= new Date() ? "released" : "upcoming"),
@@ -1030,16 +1127,38 @@ function App(){
               if(m.team_name && m.profile?.display_name) memberPlayerNameByTeam[m.team_name]=m.profile.display_name;
             });
             const newColors = {}, newDisplay = {}, newPlayerNames = {};
-            let colorIdx = 0;
-            films.forEach(f=>{
-              if(!f.team || newColors[f.team]) return;
-              newColors[f.team] = memberColorByTeam[f.team] || TEAM_COLOR_PALETTE[colorIdx % TEAM_COLOR_PALETTE.length];
-              newDisplay[f.team] = f.team;
-              // Falls back to the studio name itself when no member row/profile
-              // matches (e.g. a stale team_name left over from before a rename).
-              newPlayerNames[f.team] = memberPlayerNameByTeam[f.team] || f.team;
-              colorIdx++;
-            });
+            const legacyColors = LEGACY_REMAINDER_LEAGUES.has(LEAGUE_UUID);
+            if(legacyColors){
+              // The two original leagues keep the colors their players already know.
+              const OLD_PALETTE=["#3498db","#e74c3c","#9b59b6","#e67e22","#2ecc71","#1abc9c","#e91e63","#f1c40f","#5b6ee1","#95a5a6"];
+              let colorIdx = 0;
+              films.forEach(f=>{
+                if(!f.team || newColors[f.team]) return;
+                newColors[f.team] = memberColorByTeam[f.team] || OLD_PALETTE[colorIdx % OLD_PALETTE.length];
+                newDisplay[f.team] = f.team;
+                newPlayerNames[f.team] = memberPlayerNameByTeam[f.team] || f.team;
+                colorIdx++;
+              });
+            } else {
+              // Every team gets its own color: chosen colors first, then unused palette colors
+              // in join order, so colors stay stable as picks come in and never repeat (<=12 teams).
+              const teamOrder = [];
+              LEAGUE_MEMBERS.forEach(m=>{ if(m.team_name && !teamOrder.includes(m.team_name)) teamOrder.push(m.team_name); });
+              films.forEach(f=>{ if(f.team && !teamOrder.includes(f.team)) teamOrder.push(f.team); });
+              const used = new Set(teamOrder.map(t=>memberColorByTeam[t]).filter(Boolean));
+              const free = TEAM_COLOR_PALETTE.filter(c=>!used.has(c));
+              let freeIdx = 0, reuseIdx = 0;
+              const dashed = {};
+              teamOrder.forEach(t=>{
+                if(memberColorByTeam[t]) newColors[t] = memberColorByTeam[t];
+                else if(freeIdx < free.length) newColors[t] = free[freeIdx++];
+                else { newColors[t] = TEAM_COLOR_PALETTE[reuseIdx++ % TEAM_COLOR_PALETTE.length]; dashed[t] = true; }
+                newDisplay[t] = t;
+                // Falls back to the studio name itself when no member row/profile matches.
+                newPlayerNames[t] = memberPlayerNameByTeam[t] || t;
+              });
+              EXEC_DASHED = dashed;
+            }
             EXEC_COLORS = newColors;
             DISPLAY = newDisplay;
             PLAYER_NAMES = newPlayerNames;
@@ -1089,7 +1208,7 @@ function App(){
       // uuid, one set of rows per league.
       const weeklySnapshotLeagueId = LEAGUE_UUID;
       try{
-        const rows = await supabaseFetch("weekly_bo_snapshots", `league_id=eq.${weeklySnapshotLeagueId}&order=snapshot_date.asc`);
+        const rows = await supabaseFetchAll("weekly_bo_snapshots", `league_id=eq.${weeklySnapshotLeagueId}&order=snapshot_date.asc,team.asc`);
         if(rows.length>0){
           const byWeek={};
           rows.forEach(r=>{
@@ -1103,7 +1222,7 @@ function App(){
 
       // ── 3. Weekly POI snapshots — from Supabase ──────────────────────────
       try{
-        const rows = await supabaseFetch("weekly_poi_snapshots", `league_id=eq.${weeklySnapshotLeagueId}&order=snapshot_date.asc`);
+        const rows = await supabaseFetchAll("weekly_poi_snapshots", `league_id=eq.${weeklySnapshotLeagueId}&order=snapshot_date.asc,team.asc`);
         if(rows.length>0){
           const byWeek={};
           rows.forEach(r=>{
@@ -1130,12 +1249,16 @@ function App(){
 
   const data=useMemo(()=>{
     const execs={};
-    Object.keys(EXEC_COLORS).forEach(t=>{execs[t]={name:t,films:[],totalSpent:0,totalBO:0,filmCount:0}});
-    films.forEach(f=>{const e=execs[f.team];if(!e)return;e.films.push(f);e.totalSpent+=f.bid;e.totalBO+=f.bo;e.filmCount++});
+    Object.keys(EXEC_COLORS).forEach(t=>{execs[t]={name:t,films:[],totalSpent:0,totalBO:0,totalOscar:0,noms:0,oscarWins:0,filmCount:0}});
+    // Voided picks earn nothing (same rule as league_standings() on the server).
+    films.forEach(f=>{const e=execs[f.team];if(!e)return;e.films.push(f);e.totalSpent+=f.bid;e.totalBO+=f.voided?0:f.bo;e.totalOscar+=f.oscarM||0;e.noms+=f.voided?0:(f.noms||0);e.oscarWins+=f.voided?0:(f.oscarWins||0);e.filmCount++});
+    const frozenTeams={};
+    (FINAL_RESULT?.standings||[]).forEach(t=>{frozenTeams[t.team]=t;});
     Object.values(execs).forEach(e=>{
       const eRem=getTeamRemainder(e.name);
-      e.remaining=eRem?eRem.remaining:0;
-      e.grandTotal=e.totalBO+e.remaining*1e6;
+      e.remaining=frozenTeams[e.name]?Number(frozenTeams[e.name].remaining_m||0):(eRem?eRem.remaining:0);
+      // Total = box office + Oscar bonuses + unspent budget (all in dollars)
+      e.grandTotal=e.totalBO+e.totalOscar*1e6+e.remaining*1e6;
       // POI: BO earned / money committed (released + voided)
       // Voided films add to the spend denominator (dead money) but contribute $0 BO
       const releasedFilms=e.films.filter(f=>f.bo>0);
@@ -1156,8 +1279,11 @@ function App(){
       e.releasedBO=releasedFilms.reduce((s,f)=>s+f.bo,0);
       e.releasedCount=releasedFilms.length;
     });
-    const ranked=Object.values(execs).sort((a,b)=>b.grandTotal-a.grandTotal);
+    const ranked=Object.values(execs).sort((a,b)=>(b.grandTotal-a.grandTotal)||(b.totalBO-a.totalBO));
     ranked.forEach((e,i)=>e.rank=i+1);
+    // A finished season shows the official frozen order (ties included) even if a client-side
+    // number would round differently.
+    if(FINAL_RESULT) ranked.forEach(e=>{ if(frozenTeams[e.name]) e.rank=Number(frozenTeams[e.name].rank); });
     const poiRanked=[...Object.values(execs)].sort((a,b)=>b.poi-a.poi);
     poiRanked.forEach((e,i)=>e.poiRank=i+1);
     return{execs,ranked,poiRanked};
@@ -1313,8 +1439,8 @@ function App(){
           {endgameActive?(
             <>
               <div style={{fontSize:10,color:theme.gold,letterSpacing:"0.3em",fontWeight:500,marginBottom:6}}>STUDIO EXEC FANTASY &middot; {seasonYearLabel}</div>
-              <h1 style={{fontFamily:"'Playfair Display',Georgia,serif",fontSize:"clamp(2rem,7vw,3.4rem)",fontWeight:700,letterSpacing:"0.02em",color:theme.gold,lineHeight:1.1,margin:0}}>Awards Season</h1>
-              <div style={{fontSize:13,letterSpacing:"0.25em",color:theme.textMuted,marginTop:10,textTransform:"uppercase",fontWeight:500}}>The Final Act</div>
+              <h1 style={{fontFamily:"'Playfair Display',Georgia,serif",fontSize:"clamp(2rem,7vw,3.4rem)",fontWeight:700,letterSpacing:"0.02em",color:theme.gold,lineHeight:1.1,margin:0}}>{FINAL_RESULT?"Final Standings":"Awards Season"}</h1>
+              <div style={{fontSize:13,letterSpacing:"0.25em",color:theme.textMuted,marginTop:10,textTransform:"uppercase",fontWeight:500}}>{FINAL_RESULT?"That's a wrap":"The Final Act"}</div>
             </>
           ):(
             <>
@@ -1325,7 +1451,7 @@ function App(){
           )}
           <div style={{display:"flex",justifyContent:"center",gap:6,alignItems:"center",marginTop:8}}>
             <div style={{width:6,height:6,borderRadius:"50%",background:liveStatus==="live"?(endgameActive?theme.gold:"#34d399"):liveStatus==="loading"?theme.goldDeep:"#f87171",animation:liveStatus==="loading"?"pulse 1.5s infinite":"none"}}/>
-            <span style={{fontSize:10,color:theme.textMuted,fontFamily:"monospace",letterSpacing:"0.1em"}}>{liveStatus==="live"?(endgameActive?"LIVE · FINAL ACT":"LIVE"):liveStatus==="loading"?"CONNECTING":"OFFLINE"}</span>
+            <span style={{fontSize:10,color:theme.textMuted,fontFamily:"monospace",letterSpacing:"0.1em"}}>{liveStatus==="live"?(FINAL_RESULT?"FINAL":endgameActive?"LIVE · FINAL ACT":"LIVE"):liveStatus==="loading"?"CONNECTING":"OFFLINE"}</span>
           </div>
         </div>
 
@@ -1347,7 +1473,7 @@ function App(){
         ):(
         <div style={{animation:"fadeSlideUp 0.35s ease-out both"}}>
         {/* Endgame countdown banner - replaces "days left" tile concept */}
-        {endgameActive&&<EndgameCountdownBanner theme={theme}/>}
+        {FINAL_RESULT?<SeasonFinalBanner data={data}/>:endgameActive&&<EndgameCountdownBanner theme={theme}/>}
 
         <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6,margin:"8px 0 16px"}}>
           {[{v:fmt(totalBO),l:"Combined BO"},{v:`${released}/${totalFilms}`,l:"Released"},{v:String(totalFilms-released),l:"Films Left"},{v:data.ranked.length?(DISPLAY[data.ranked[data.ranked.length-1].name]||data.ranked[data.ranked.length-1].name):"—",l:"Sacko"}].map((c,i)=>{
@@ -1385,7 +1511,7 @@ function App(){
         {tab==="manage"&&isAdmin&&<div key="manage" style={{animation:"fadeSlideUp 0.4s ease-out both"}}><ManageTab leagueContext={leagueCtx} members={leagueMembers} userMembership={membership} draftSession={draftSession} refreshDraftSession={refreshDraftSession} onGoToDraftRoom={()=>setTab("draft")}/></div>}
         </div>
         )}
-        <div style={{textAlign:"center",padding:"24px 0 8px",fontSize:10,color:"#3a3a4e",letterSpacing:"0.12em",textTransform:"uppercase",fontFamily:"monospace"}}>{days} days until Oscar Sunday &bull; {seasonDates().eligibilityEnd}</div>
+        <div style={{textAlign:"center",padding:"24px 0 8px",fontSize:10,color:"#3a3a4e",letterSpacing:"0.12em",textTransform:"uppercase",fontFamily:"monospace"}}>{FINAL_RESULT?`Season final · ${new Date(FINAL_RESULT.finalized_at).toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"})}`:<>{Math.max(days,0)} days until Oscar Sunday &bull; {seasonDates().eligibilityEnd}</>}</div>
       </div>
       <style>{`
         @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
@@ -2364,6 +2490,7 @@ function StandingsBO({data,expandedExecs,toggleExec,liveStatus,myTeam}){
                         <span>Spent: <span style={{color:"#34d399"}}>${spent}M</span></span>
                         <span>Pending: <span style={{color:"#f87171"}}>${pending}M</span></span>
                         <span>Total: <span style={{color:"#60a5fa"}}>${exec.totalSpent}M</span></span>
+                        {exec.totalOscar>0&&<span title={`${exec.noms} Oscar nomination${exec.noms===1?"":"s"}, ${exec.oscarWins} win${exec.oscarWins===1?"":"s"}`} style={{color:"#fbbf24",background:"rgba(251,191,36,0.12)",border:"1px solid rgba(251,191,36,0.35)",borderRadius:4,padding:"0 6px",fontWeight:700}}>Oscars: +${exec.totalOscar}M</span>}
                         {LEAGUE_CONTEXT?.acquisitions_enabled&&ACQ_BUDGETS[exec.name]
                           ?<span title="Remaining Acquisitions budget (alpha)" style={{color:"#c4b5fd",background:"rgba(139,92,246,0.14)",border:"1px solid rgba(139,92,246,0.4)",borderRadius:4,padding:"0 6px",fontWeight:700}}>Acq. Budget: ${ACQ_BUDGETS[exec.name].remaining}M</span>
                           :exec.remaining>0&&<span>Remainder: <span style={{color:"#d4a843"}}>${exec.remaining}M</span></span>}
@@ -2386,16 +2513,17 @@ function StandingsBO({data,expandedExecs,toggleExec,liveStatus,myTeam}){
       </div>
       <div style={{background:"#111119",border:"1px solid #222233",borderRadius:10,padding:20,marginTop:16}}>
         <div style={{fontSize:12,fontWeight:700,color:"#6a6a7e",letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:16}}>Grand Total Breakdown</div>
-        {ranked.map(exec=>{const boPct=maxGT>0?(exec.totalBO/maxGT)*100:0;const budPct=maxGT>0?((exec.remaining*1e6)/maxGT)*100:0;return(
+        {ranked.map(exec=>{const boPct=maxGT>0?(exec.totalBO/maxGT)*100:0;const oscPct=maxGT>0?((exec.totalOscar*1e6)/maxGT)*100:0;const budPct=maxGT>0?((exec.remaining*1e6)/maxGT)*100:0;return(
           <div key={exec.name} style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
-            <div style={{width:55,fontSize:12,fontWeight:700,color:EXEC_COLORS[exec.name],textAlign:"right"}}>{PLAYER_NAMES[exec.name]}</div>
+            <div style={{width:55,fontSize:12,fontWeight:700,color:EXEC_COLORS[exec.name],textAlign:"right",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flexShrink:0}}>{PLAYER_NAMES[exec.name]}</div>
             <div style={{flex:1,position:"relative",height:26,background:"#1a1a28",borderRadius:4,overflow:"hidden"}}>
               <div style={{position:"absolute",left:0,top:0,bottom:0,width:boPct+"%",background:EXEC_COLORS[exec.name],opacity:0.7,borderRadius:"4px 0 0 4px"}}/>
-              <div style={{position:"absolute",left:boPct+"%",top:0,bottom:0,width:budPct+"%",background:EXEC_COLORS[exec.name],opacity:0.25}}/>
+              {oscPct>0&&<div style={{position:"absolute",left:boPct+"%",top:0,bottom:0,width:oscPct+"%",background:"repeating-linear-gradient(135deg,#fbbf24 0 4px,rgba(251,191,36,0.55) 4px 8px)"}}/>}
+              <div style={{position:"absolute",left:(boPct+oscPct)+"%",top:0,bottom:0,width:budPct+"%",background:EXEC_COLORS[exec.name],opacity:0.25}}/>
               <div style={{position:"absolute",right:6,top:"50%",transform:"translateY(-50%)",fontFamily:"monospace",fontSize:10}}>{fmt(exec.grandTotal)}</div>
             </div>
           </div>)})}
-        <div style={{display:"flex",gap:14,justifyContent:"center",marginTop:10,fontSize:10,color:"#6a6a7e"}}><span><span style={{display:"inline-block",width:12,height:8,background:"#888",opacity:0.7,borderRadius:2,marginRight:4}}/>Box Office</span><span><span style={{display:"inline-block",width:12,height:8,background:"#888",opacity:0.25,borderRadius:2,marginRight:4}}/>Remaining Budget</span></div>
+        <div style={{display:"flex",gap:14,justifyContent:"center",marginTop:10,fontSize:10,color:"#6a6a7e"}}><span><span style={{display:"inline-block",width:12,height:8,background:"#888",opacity:0.7,borderRadius:2,marginRight:4}}/>Box Office</span>{ranked.some(e=>e.totalOscar>0)&&<span><span style={{display:"inline-block",width:12,height:8,background:"#fbbf24",borderRadius:2,marginRight:4}}/>Oscars</span>}<span><span style={{display:"inline-block",width:12,height:8,background:"#888",opacity:0.25,borderRadius:2,marginRight:4}}/>Remaining Budget</span></div>
       </div>
     </div>
   );
@@ -3710,6 +3838,9 @@ function AcquisitionWindowBanner({week,phase,declared}){
 // shared-module approach already used everywhere in this file. Add a
 // season here (and to the other two copies) once its window is confirmed.
 function seasonWindowFor(season){
+  const s=SEASONS[String(season)];
+  if(s) return {start:s.window_start,end:s.window_end};
+  // only used if the seasons table couldn't be read
   const windows={"2026":{start:"2026-03-16",end:"2027-03-14"},"2027":{start:"2027-03-15",end:"2028-03-05"}};
   return windows[String(season)]||null;
 }
@@ -3783,7 +3914,7 @@ function AcquisitionsTab({leagueContext,members,userMembership}){
       }
 
       if(universeFilms.length===0){
-        const uf=await supabaseFetch("universe_films","select=id,title,imdb_id,release_date,festival_protected_until&order=release_date.asc.nullslast");
+        const uf=await supabaseFetchAll("universe_films","select=id,title,imdb_id,release_date,festival_protected_until&order=release_date.asc.nullslast,id.asc");
         setUniverseFilms(uf||[]);
       }
     }catch(e){
@@ -4187,7 +4318,7 @@ function WeekendPicksTab({leagueContext,userMembership}){
 
   useEffect(()=>{
     if(!state?.week||!isAdmin||adminFilms.length) return;
-    supabaseFetch("universe_films","select=imdb_id,title,release_date&imdb_id=not.is.null&order=title.asc&limit=1000").then(r=>setAdminFilms(r||[]));
+    supabaseFetchAll("universe_films","select=imdb_id,title,release_date&imdb_id=not.is.null&order=title.asc,imdb_id.asc").then(r=>setAdminFilms(r||[]));
   },[state?.week?.id,isAdmin]);
 
   function startEditing(){
@@ -4615,24 +4746,41 @@ function DraftRoomTab({leagueContext, members, userMembership, films, draftSessi
       } else {
         setBids([]);
       }
-      if(universeFilms.length===0){
-        const uf=await supabaseFetch("universe_films","select=id,title,imdb_id,release_date,festival_protected_until&order=release_date.asc.nullslast");
+      // The realtime handlers below hold the FIRST render's loadAll, whose universeFilms is
+      // always empty -- track "already loaded" in a ref so a bid doesn't re-download the Universe.
+      if(!universeLoadedRef.current){
+        universeLoadedRef.current=true;
+        const uf=await supabaseFetchAll("universe_films","select=id,title,imdb_id,release_date,festival_protected_until&order=release_date.asc.nullslast,id.asc");
         setUniverseFilms(uf||[]);
       }
     }catch(e){ console.error("[draft room] load failed:", e.message); }
     setLoading(false);
   }
+  const universeLoadedRef=useRef(false);
+  const loadAllRef=useRef(loadAll);
+  loadAllRef.current=loadAll;
 
   useEffect(()=>{ loadAll(); },[]);
 
+  // Realtime pushes changes instantly; polling is the safety net for a dropped socket (phone
+  // asleep, flaky wifi, blocked websockets): every 4s while realtime is down, every 15s otherwise.
+  const realtimeOkRef=useRef(false);
   useEffect(()=>{
     const channel=supabaseClient
       .channel(`draft-room-${LEAGUE_UUID}`)
-      .on("postgres_changes",{event:"*",schema:"public",table:"draft_sessions",filter:`league_id=eq.${LEAGUE_UUID}`},()=>loadAll())
-      .on("postgres_changes",{event:"*",schema:"public",table:"draft_items",filter:`league_id=eq.${LEAGUE_UUID}`},()=>loadAll())
-      .on("postgres_changes",{event:"*",schema:"public",table:"draft_bids",filter:`league_id=eq.${LEAGUE_UUID}`},()=>loadAll())
-      .subscribe((status)=>{ if(status==="SUBSCRIBED") loadAll(); });
-    return ()=>{ supabaseClient.removeChannel(channel); };
+      .on("postgres_changes",{event:"*",schema:"public",table:"draft_sessions",filter:`league_id=eq.${LEAGUE_UUID}`},()=>loadAllRef.current())
+      .on("postgres_changes",{event:"*",schema:"public",table:"draft_items",filter:`league_id=eq.${LEAGUE_UUID}`},()=>loadAllRef.current())
+      .on("postgres_changes",{event:"*",schema:"public",table:"draft_bids",filter:`league_id=eq.${LEAGUE_UUID}`},()=>loadAllRef.current())
+      .subscribe((status)=>{ realtimeOkRef.current=(status==="SUBSCRIBED"); if(status==="SUBSCRIBED") loadAllRef.current(); });
+    let ticks=0;
+    const poll=setInterval(()=>{
+      ticks++;
+      if(document.hidden) return;
+      if(!realtimeOkRef.current || ticks%4===0) loadAllRef.current();
+    },4000);
+    const onWake=()=>{ if(!document.hidden) loadAllRef.current(); };
+    document.addEventListener("visibilitychange",onWake);
+    return ()=>{ clearInterval(poll); document.removeEventListener("visibilitychange",onWake); supabaseClient.removeChannel(channel); };
   },[]);
 
   // Purely a display tick -- always recomputed from whatever ends_at is
@@ -5054,7 +5202,7 @@ function ManageTab({leagueContext, members, userMembership, draftSession, refres
     setPicksLoading(true); setPicksLoadError(null);
     try{
       const [uf, lp] = await Promise.all([
-        supabaseFetch("universe_films", "select=id,title,imdb_id,release_date&order=release_date.asc.nullslast"),
+        supabaseFetchAll("universe_films", "select=id,title,imdb_id,release_date&order=release_date.asc.nullslast,id.asc"),
         supabaseFetch("league_picks", `league_id=eq.${LEAGUE_UUID}&select=*,universe_films(title)`),
       ]);
       setUniverseFilms(uf||[]);
@@ -5507,6 +5655,7 @@ function SettingsPanel({membership, leagueCtx, onClose}){
     if(!session||!membership) return;
     const newName = studioName.trim();
     if(!newName){ setMsg({text:"Studio name can't be empty",error:true}); setSaving(false); return; }
+    if(newName.length>20){ setMsg({text:"Studio names are 20 characters max",error:true}); setSaving(false); return; }
     // Goes through the rename_my_team() RPC (migration 016) rather than a
     // plain PATCH -- league_picks.team_name is a plain string match, not a
     // foreign key to league_members, so a rename needs to cascade into this
@@ -5583,7 +5732,8 @@ function SettingsPanel({membership, leagueCtx, onClose}){
               <div style={{fontSize:12,color:"#6a6a7e",marginBottom:20,lineHeight:1.6}}>Your studio name is how you appear in <strong style={{color:"#e8e8f0"}}>{leagueCtx?.name||"this league"}</strong>. Each league can have a different studio name. Your player name, email, and password are account-wide — manage those from your dashboard settings instead.</div>
               <div style={sectionStyle}>
                 <label style={labelStyle}>Studio Name</label>
-                <input style={inputStyle} value={studioName} onChange={e=>setStudioName(e.target.value)} placeholder="e.g. Sunset Pictures"/>
+                <input style={inputStyle} value={studioName} maxLength={20} onChange={e=>setStudioName(e.target.value)} placeholder="e.g. Sunset Pictures"/>
+                <div style={{fontSize:10,color:"#6a6a7e",marginTop:4}}>{studioName.trim().length}/20 · letters, numbers, spaces and . , ' &amp; ! ? : -</div>
                 <div style={{fontSize:10,color:"#6a6a7e",marginTop:5}}>This updates how you appear in standings and on your slate.</div>
               </div>
               <button onClick={saveStudioName} disabled={saving} style={{...btnStyle,background:"#d4a843",color:"#0d0d14",width:"100%",opacity:saving?0.7:1,marginBottom:24}}>
