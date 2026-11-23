@@ -389,7 +389,7 @@ header{position:sticky;top:0;z-index:50;height:60px;padding:0 32px;display:flex;
     <div id="settingsPanelContent" style="display:flex;flex-direction:column;flex:1;overflow:hidden"></div>
     <div style="padding:14px 20px;border-top:1px solid #222233;display:flex;justify-content:space-between;align-items:center;flex-shrink:0">
       <a href="/about" style="font-size:12px;color:#6a6a7e;text-decoration:none" onmouseover="this.style.color='#e8e8f0'" onmouseout="this.style.color='#6a6a7e'">Help & About</a>
-      <span style="font-size:11px;color:#3a3a50;font-family:monospace">SEF 2026</span>
+      <span style="font-size:11px;color:#3a3a50;font-family:monospace">SEF</span>
     </div>
   </div>
 </div>
@@ -590,7 +590,12 @@ async function init() {
   if (_clSeasonInput) {
     const _thisYear = new Date().getFullYear();
     _clSeasonInput.min = _thisYear;
-    if (parseInt(_clSeasonInput.value) < _thisYear) _clSeasonInput.value = _thisYear;
+    // Default to the next season that hasn't started yet (e.g. in Nov 2026 -> 2027), since
+    // a league can't draft films that already released. Still freely editable.
+    const _today = new Date().toISOString().slice(0, 10);
+    let _defSeason = _thisYear;
+    while (seasonWindowFor(_defSeason).start <= _today) _defSeason++;
+    _clSeasonInput.value = _defSeason;
   }
 
   // Load league memberships

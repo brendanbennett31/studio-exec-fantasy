@@ -314,12 +314,22 @@ async function loadLeagueContext() {
 }
 
 const SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQT4IsjOToQ2VQHupKe7NLLlrD6SxkYALrnOAwvtSKgL-wWr9SPFZ8O3ru7_AhXl9wi5isLXg_Psxjg/pub?output=csv";
-const OSCAR_DATE = new Date(2027, 2, 14);
-const OSCAR_NOMS_DATE = new Date(2027, 0, 23); // Jan 23, 2027 — typical Oscar nominations date
-const ENDGAME_START_DATE = new Date(2027, 0, 1); // Jan 1, 2027 — auto-trigger date
+// Season-specific dates, derived from the current league's season (so a 2027-season
+// league counts down to ITS Oscars, not the 2026 ones). Falls back to the 2026 season
+// when there's no league context. Add a season to seasonWindowFor() to support it.
+function seasonDates(){
+  const w=seasonWindowFor(LEAGUE_CONTEXT?.season)||seasonWindowFor(2026);
+  const start=new Date(w.start+"T00:00:00"), end=new Date(w.end+"T00:00:00");
+  const fmtLong=d=>d.toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"});
+  return {
+    oscarDate:end,                                          // Oscar ceremony = end of the eligibility window
+    nomsDate:new Date(end.getFullYear(),0,23),              // Jan 23 -- typical Oscar nominations date
+    endgameStart:new Date(end.getFullYear(),0,1),           // Jan 1 of the awards year -- endgame auto-trigger
+    eligibilityStart:fmtLong(start), eligibilityEnd:fmtLong(end),
+    start:w.start, end:w.end
+  };
+}
 const ENDGAME_FILMS_LEFT_THRESHOLD = 5; // OR trigger when ≤5 films unreleased
-const ELIGIBILITY_START = "March 16, 2026";
-const ELIGIBILITY_END = "March 14, 2027";
 // Mutable (not const): for a real league (!IS_LEGACY) these get rebuilt from
 // that league's actual league_members in loadLeagueContext() below, so each
 // league shows its own roster/colors instead of the original hardcoded
@@ -332,11 +342,11 @@ const TEAM_COLOR_PALETTE = ["#3498db","#e74c3c","#9b59b6","#e67e22","#2ecc71","#
 
 // ── Endgame detection ─────────────────────────────────────────────────────────
 // Endgame activates when EITHER:
-//   1. Current date >= Jan 1 of awards year (ENDGAME_START_DATE)
+//   1. Current date >= Jan 1 of awards year (seasonDates().endgameStart)
 //   2. ≤5 films are still unreleased (most of the season is done)
 function isEndgameActive(films){
   const now=new Date();
-  if(now>=ENDGAME_START_DATE) return true;
+  if(now>=seasonDates().endgameStart) return true;
   if(films&&films.length>0){
     const unreleased=films.filter(f=>f.status!=='released').length;
     if(unreleased<=ENDGAME_FILMS_LEFT_THRESHOLD) return true;
@@ -536,7 +546,7 @@ function parseWeeklyData(rows){
 // To add a new week: update FALLBACK_WEEKLY_BO and FALLBACK_WEEKLY_POI below.
 
 function fmt(n){if(Math.abs(n)>=1e9)return"$"+(n/1e9).toFixed(2)+"B";if(Math.abs(n)>=1e6)return"$"+(n/1e6).toFixed(1)+"M";if(Math.abs(n)>=1e3)return"$"+(n/1e3).toFixed(0)+"K";return"$"+n.toLocaleString()}
-function daysLeft(){return Math.ceil((OSCAR_DATE-new Date())/864e5)}
+function daysLeft(){return Math.ceil((seasonDates().oscarDate-new Date())/864e5)}
 function parseCSV(t){const l=t.split("\n"),r=[];for(const line of l){const row=[];let f="",q=false;for(let j=0;j<line.length;j++){const c=line[j];if(q){if(c==='"'&&line[j+1]==='"'){f+='"';j++}else if(c==='"')q=false;else f+=c}else{if(c==='"')q=true;else if(c===','){row.push(f.trim());f=""}else f+=c}}row.push(f.trim());r.push(row)}return r}
 function parseNum(v){if(!v)return 0;const n=parseInt(String(v).replace(/[$,]/g,""),10);return isNaN(n)?0:n}
 
@@ -826,12 +836,16 @@ function ChampionVsRecordChart({films}){
     if(!champion){ setWeekly([]); setLoadingWeekly(false); return; }
     let cancelled=false;
     setLoadingWeekly(true);
-    supabaseFetch("daily_bo", `league_id=eq.${LEAGUE_ID}&film_title=eq.${encodeURIComponent(champion.title)}&order=bo_date.asc`)
+    supabaseFetch("daily_bo", `film_title=eq.${encodeURIComponent(champion.title)}&order=bo_date.asc`)
       .then(rows=>{
         if(cancelled) return;
         let cum=0;
         const byWeek={};
-        (rows||[]).forEach((r,i)=>{
+        // Daily box office is film-level (shared by every league); older rows may exist
+        // under more than one league key, so keep one row per date.
+        const seenDates=new Set();
+        const uniqueRows=(rows||[]).filter(r=>!seenDates.has(r.bo_date)&&seenDates.add(r.bo_date));
+        uniqueRows.forEach((r,i)=>{
           cum+=Number(r.daily_gross);
           byWeek[Math.ceil((i+1)/7)]=cum;
         });
@@ -1132,8 +1146,8 @@ function PurchasePriceTab({films,data,studioNames}){
               {/* Title */}
               <div style={{minWidth:0,paddingRight:6}}>
                 <ReleaseDayBadge releaseDate={f.release}>
-                  {bomUrl(f.title)
-                    ? <a href={bomUrl(f.title)} target="_blank" rel="noopener noreferrer" style={{fontWeight:600,fontSize:13,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"block",color:f.voided?"#ef4444":f.locked?"#6a6a7e":"#e8e8f0",textDecoration:f.voided?"line-through":"none"}}
+                  {bomUrl(f)
+                    ? <a href={bomUrl(f)} target="_blank" rel="noopener noreferrer" style={{fontWeight:600,fontSize:13,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"block",color:f.voided?"#ef4444":f.locked?"#6a6a7e":"#e8e8f0",textDecoration:f.voided?"line-through":"none"}}
                         onMouseEnter={e=>e.currentTarget.style.color="#d4a843"}
                         onMouseLeave={e=>e.currentTarget.style.color=f.voided?"#ef4444":f.locked?"#6a6a7e":"#e8e8f0"}>
                         {f.locked&&<span style={{marginRight:4,display:"inline-flex",alignItems:"center"}}><svg width="10" height="10" viewBox="0 0 12 12" fill="none"><rect x="2" y="5.5" width="8" height="5.5" rx="1" stroke="#6a6a7e" strokeWidth="1.2"/><path d="M4 5.5V4a2 2 0 0 1 4 0v1.5" stroke="#6a6a7e" strokeWidth="1.2" strokeLinecap="round"/></svg></span>}{f.title}{f.awardLabel&&<span style={{marginLeft:5,fontSize:10,fontWeight:500,color:"#a07c2e"}}>({f.awardLabel})</span>} <span style={{fontSize:9,opacity:0.4}}>↗</span>
@@ -1177,8 +1191,8 @@ function PurchasePriceTab({films,data,studioNames}){
 
 // ── ENDGAME COUNTDOWN BANNER — shows days until Oscar noms and Oscar Sunday ────
 function EndgameCountdownBanner({theme}){
-  const daysToNoms=daysUntil(OSCAR_NOMS_DATE);
-  const daysToOscars=daysUntil(OSCAR_DATE);
+  const daysToNoms=daysUntil(seasonDates().nomsDate);
+  const daysToOscars=daysUntil(seasonDates().oscarDate);
   const nomsLabel=daysToNoms>0?`${daysToNoms}`:daysToNoms===0?"TODAY":"PASSED";
   const oscarsLabel=daysToOscars>0?`${daysToOscars}`:daysToOscars===0?"TODAY":"PASSED";
   return(
@@ -2531,8 +2545,8 @@ function SlateDrawer({exec,studioNames,myTeam}){
           <div key={i} style={{display:"grid",gridTemplateColumns:gridCols,gap:4,padding:"7px 14px",fontSize:12,alignItems:"center",borderBottom:"1px solid #0e0e16",background:f.voided?"rgba(239,68,68,0.04)":isReleaseDay(f.release)?"rgba(212,168,67,0.04)":"transparent",opacity:f.locked?0.65:f.voided?0.75:1}}>
             <div style={{minWidth:0}}>
               <ReleaseDayBadge releaseDate={f.release}>
-                {bomUrl(f.title)
-                  ? <a href={bomUrl(f.title)} target="_blank" rel="noopener noreferrer" style={{fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"block",color:f.voided?"#ef4444":f.locked?"#6a6a7e":"inherit",textDecoration:f.voided?"line-through":"none"}}
+                {bomUrl(f)
+                  ? <a href={bomUrl(f)} target="_blank" rel="noopener noreferrer" style={{fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"block",color:f.voided?"#ef4444":f.locked?"#6a6a7e":"inherit",textDecoration:f.voided?"line-through":"none"}}
                       onMouseEnter={e=>e.currentTarget.style.color="#d4a843"}
                       onMouseLeave={e=>e.currentTarget.style.color=f.voided?"#ef4444":f.locked?"#6a6a7e":"inherit"}>
                       {f.locked&&<span style={{marginRight:4,display:"inline-flex",alignItems:"center"}}><svg width="10" height="10" viewBox="0 0 12 12" fill="none"><rect x="2" y="5.5" width="8" height="5.5" rx="1" stroke="#6a6a7e" strokeWidth="1.2"/><path d="M4 5.5V4a2 2 0 0 1 4 0v1.5" stroke="#6a6a7e" strokeWidth="1.2" strokeLinecap="round"/></svg></span>}{f.title}{f.awardLabel&&<span style={{marginLeft:5,fontSize:10,fontWeight:500,color:"#a07c2e"}}>({f.awardLabel})</span>} <span style={{fontSize:9,opacity:0.4,letterSpacing:0}}>↗</span>
@@ -2881,7 +2895,8 @@ function CalendarView({films}){
 
 function CalendarGrid({films,months,h2hDates}){
   const mNames=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];const dayNames=["S","M","T","W","T","F","S"];const today=new Date();today.setHours(0,0,0,0);
-  const allMonths=[];for(let y=2026;y<=2027;y++){const s=y===2026?2:0;const e=y===2027?3:11;for(let m=s;m<=e;m++)allMonths.push({y,m})}
+  const allMonths=[];{const sd=seasonDates();const a=new Date(sd.start+"T00:00:00"),b=new Date(sd.end+"T00:00:00");let y=a.getFullYear(),m=a.getMonth();const endY=b.getFullYear(),endM=b.getMonth()+1; // through the month after the Oscars
+  while(y<endY||(y===endY&&m<=endM)){allMonths.push({y,m});m++;if(m>11){m=0;y++;}}}
   const filmsByDate={};films.forEach(f=>{if(!f.release)return;const d=parseReleaseDate(f.release);if(!d||isNaN(d))return;const key=`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;if(!filmsByDate[key])filmsByDate[key]=[];filmsByDate[key].push(f)});
   return(<div style={{display:"flex",flexDirection:"column",gap:16}}>
     {allMonths.map(({y,m})=>{const firstDay=new Date(y,m,1).getDay();const dim=new Date(y,m+1,0).getDate();const cells=[];for(let i=0;i<firstDay;i++)cells.push(null);for(let d=1;d<=dim;d++)cells.push(d);return(
@@ -2900,149 +2915,9 @@ function CalendarGrid({films,months,h2hDates}){
 }
 
 // ─── BIGGEST MISSES ──────────────────
-// CSV data embedded directly from 2026 UNIVERSE sheet
-// Columns: Film(0), IMDB ID(1), Release Date(2), blank(3), Domestic Box Office(4), On the Slate?(5)
-const UNIVERSE_DATA = `Film,IMDB ID,Release Date,,Domestic Box Office,On the Slate?
-Project Hail Mary,tt12042730,2026-03-20,,"$260,744,752.00",YES
-Ready or Not 2,tt33978029,2026-03-20,,"$22,242,221.00",YES
-Do Not Enter,tt3515878,2026-03-20,,Not found,
-Pretty Lethal,tt26678938,2026-03-25,,Not found,
-They Will Kill You,tt31728330,2026-03-27,,"$10,527,870.00",
-Mike & Nick & Nick & Alice,tt27552099,2026-03-27,,Not found,
-The Super Mario Galaxy Movie,tt28650488,2026-04-01,,"$314,905,415.00",YES
-The Drama,tt33071426,2026-04-03,,"$30,849,251.00",
-You Me & Tuscany,tt36352591,2026-04-10,,"$9,428,435.00",
-In the Grey,tt27681354,2026-04-10,,Not found,
-Outcome,tt23724682,2026-04-10,,Not found,
-The Christophers,tt34966562,2026-04-10,,"$80,672.00",
-Beast,tt7708226,2026-04-10,,"$805,993.00",
-Faces of Death,tt14619456,2026-04-10,,"$1,647,717.00",
-Newborn,tt12308018,2026-04-10,,Not found,
-Lee Cronins The Mummy,tt32612507,2026-04-17,,Not released,YES
-4 Kids Walk Into a Bank,tt13071984,2026-04-17,,Not released,
-Mother Mary,tt27200708,2026-04-17,,Not released,
-Normal,tt31195136,2026-04-17,,Not released,
-Michael,tt11378946,2026-04-24,,Not released,YES
-Apex,tt16431404,2026-04-24,,Not released,
-Over Your Dead Body,tt34685692,2026-04-24,,Not released,
-The Devil Wears Prada 2,tt33612209,2026-05-01,,Not released,YES
-Animal Farm,tt2467700,2026-05-01,,Not released,
-Hokum,tt35672862,2026-05-01,,Not released,
-Mortal Kombat II,tt17490712,2026-05-08,,Not released,
-The Sheep Detectives,tt32565993,2026-05-08,,Not released,
-Remarkably Bright Creatures,tt33100314,2026-05-08,,Not released,
-Is God Is,tt34379307,2026-05-15,,Not released,
-Poetic License,tt32063220,2026-05-15,,Not released,
-The Mandalorian and Grogu,tt30825738,2026-05-22,,Not released,YES
-I Love Boosters,tt30827810,2026-05-22,,Not released,YES
-The Breadwinner,tt34459219,2026-05-29,,Not released,
-Passenger,tt33763941,2026-05-29,,Not released,
-Backrooms,tt26657236,2026-05-29,,Not released,YES
-Masters of the Universe,tt0427340,2026-06-05,,Not released,
-Animal Friends,tt16911616,2026-06-05,,Not released,
-Power Ballad,tt32267691,2026-06-05,,Not released,
-Disclosure Day,tt15047880,2026-06-12,,Not released,YES
-Scary Movie 6,tt32093575,2026-06-12,,Not released,
-Toy Story 5,tt29355505,2026-06-19,,Not released,YES
-The Death of Robin Hood,tt32273171,2026-06-19,,Not released,
-Supergirl,tt8814476,2026-06-26,,Not released,YES
-Jackass 5,tt39316472,2026-06-26,,Not released,YES
-The Invite,tt14173636,2026-06-26,,Not released,YES
-Minions & Monsters,tt32890033,2026-07-01,,Not released,YES
-Young Washington,tt32104007,2026-07-03,,Not released,
-Moana,tt27419466,2026-07-10,,Not released,YES
-The Odyssey,tt33764258,2026-07-17,,Not released,YES
-Cut Off,tt36246412,2026-07-17,,Not released,
-Evil Dead Burn,tt31170389,2026-07-24,,Not released,YES
-The Dink,tt33499146,2026-07-24,,Not released,
-Spider-Man: Brand New Day,tt22084616,2026-07-31,,Not released,YES
-One Night Only,tt37853455,2026-08-07,,Not released,YES
-Super Troopers 3,tt8820258,2026-08-07,,Not released,YES
-Teenage Sex and Death at Camp Miasma,tt35298123,2026-08-07,,Not released,
-Fall 2,tt31192372,2026-08-07,,Not released,
-Flowervale Street,tt27165187,2026-08-14,,Not released,
-The Rivals of Amziah King,tt27706593,2026-08-14,,Not released,
-Insidious: The Bleeding World,tt32393988,2026-08-21,,Not released,
-The Dog Stars,tt21285562,2026-08-28,,Not released,YES
-Coyote vs. Acme,tt1756855,2026-08-28,,Not released,
-Cliffhanger,tt1441251,2026-08-28,,Not released,
-How to Rob a Bank,tt35866986,2026-09-04,,Not released,YES
-Mayday,tt28014327,2026-09-04,,Not released,
-Practical Magic 2,tt32588798,2026-09-11,,Not released,YES
-Sense and Sensibility,tt13609648,2026-09-11,,Not released,YES
-Resident Evil,tt35538033,2026-09-18,,Not released,YES
-Forgotten Island,tt36583977,2026-09-25,,Not released,
-Digger,tt31450459,2026-10-02,,Not released,YES
-Verity,tt32261958,2026-10-02,,Not released,YES
-The Social Reckoning,tt37510326,2026-10-09,,Not released,YES
-Other Mommy,tt36586020,2026-10-09,,Not released,
-Street Fighter,tt27419420,2026-10-16,,Not released,YES
-Whalefall,tt28535715,2026-10-16,,Not released,
-Clayface,tt34890576,2026-10-23,,Not released,YES
-Wildwood,tt2056785,2026-10-23,,Not released,
-The Cat in the Hat,tt2321555,2026-11-06,,Not released,
-The Great Beyond,tt33075482,2026-11-13,,Not released,YES
-The Hunger Games: Sunrise on the Reaping,tt32558705,2026-11-20,,Not released,YES
-Way of the Warrior Kid,tt32213169,2026-11-20,,Not released,
-Focker In-Law,tt34966140,2026-11-25,,Not released,
-Hexed,tt38077943,2026-11-25,,Not released,YES
-Narnia: The Magicians Nephew,,2026-11-26,,,
-Madden,tt24818230,2026-11-26,,Not released,YES
-Violent Night 2,tt32432428,2026-12-04,,Not released,
-Jumanji: Open World,tt26735127,2026-12-11,,Not released,YES
-Avengers: Doomsday,tt21357150,2026-12-18,,Not released,YES
-Dune: Part Three,tt31378509,2026-12-18,,Not released,YES
-The Angry Birds Movie 3,tt32557122,2026-12-23,,Not released,
-Werwulf,tt35514120,2026-12-25,,Not released,YES
-Children of Blood and Bone,tt6779038,2027-01-15,,Not released,YES
-The Beekeeper 2,tt35935357,2027-01-15,,Not released,
-The Rescue,tt35606013,2027-01-29,,Not released,
-Ice Age: Boiling Point,tt34512981,2027-02-05,,Not released,
-Remain,tt35621542,2027-02-05,,Not released,
-Untitled Judd Apatow film,tt38773073,2027-02-05,,Not released,
-The Nightingale,tt4540534,2027-02-12,,Not released,
-Cocomelon: The Movie,tt31339071,2027-02-26,,Not released,
-Panic Carefully,tt34900169,2027-02-26,,Not released,
-Gatto,tt26443610,2027-03-05,,Not released,YES
-The Thomas Crown Affair,tt5500064,2027-03-05,,Not released,
-The Exorcist,tt32492552,2027-03-12,,Not released,`;
-
-// Pre-parse IMDB IDs from UNIVERSE_DATA → title → imdb id lookup
-// Used to build Box Office Mojo links: https://www.boxofficemojo.com/title/{imdbid}/
-const IMDB_MAP=(()=>{
-  const map={};
-  const lines=UNIVERSE_DATA.split('\n').slice(1);
-  for(const line of lines){
-    const cols=line.split(',');
-    const title=(cols[0]||'').trim();
-    const imdb=(cols[1]||'').trim();
-    if(title&&imdb&&imdb.startsWith('tt')) map[title.toLowerCase()]=imdb;
-  }
-  // Manual overrides for titles that differ between the slate and UNIVERSE_DATA
-  const overrides={
-    "lee cronin's the mummy":                    "tt32612507",  // apostrophe stripped in CSV
-    "lorne":                                      "tt39847629",  // not in UNIVERSE_DATA
-    "scary movie":                                "tt32093575",  // UNIVERSE_DATA: "Scary Movie 6"
-    "angry birds 3":                              "tt32557122",  // UNIVERSE_DATA: "The Angry Birds Movie 3"
-    "wild horse nine":                            "tt15799564",  // not in UNIVERSE_DATA
-    "godzilla minus zero":                        "tt34384661",  // not in UNIVERSE_DATA
-    "end of oak street":                          "tt27165187",  // UNIVERSE_DATA: "Flowervale Street"
-    "fjord":                                      "tt35410859",  // not in UNIVERSE_DATA
-    "shaun the sheep: beast of mossy bottom":     "tt36841161",  // shortened title
-    "cat in the hat":                             "tt2321555",   // UNIVERSE_DATA: "The Cat in the Hat"
-    "hunger games: sunrise on the reaping":       "tt32558705",  // missing "The" prefix
-    "focker in law":                              "tt34966140",  // UNIVERSE_DATA: "Focker In-Law"
-    "narnia: the magician's nephew":              "tt2867162",   // missing "The Chronicles of Narnia"
-    "beekeeper 2":                                "tt35935357",  // UNIVERSE_DATA: "The Beekeeper 2"
-    "ice age - boiling point":                    "tt34512981",  // UNIVERSE_DATA: "Ice Age: Boiling Point"
-  };
-  Object.assign(map, overrides);
-  return map;
-})();
-
-function bomUrl(title){
-  const imdb=IMDB_MAP[title.toLowerCase()];
-  return imdb?`https://www.boxofficemojo.com/title/${imdb}/`:null;
+// Box Office Mojo link for a film, from its own imdb_id (every drafted film has one).
+function bomUrl(f){
+  return f&&f.imdb_id?`https://www.boxofficemojo.com/title/${f.imdb_id}/`:null;
 }
 
 function MissRow({m,i,barPct}){
@@ -3113,7 +2988,7 @@ function BiggestMisses({films,season}){
               <MissRow key={i} m={m} i={i} barPct={barPct}/>
             );
           })}
-          <div style={{marginTop:10,fontSize:10,color:"#4a4a5e",borderTop:"1px solid #1a1a28",paddingTop:8}}>Top 3 films in the 2026 Universe with box office but not on any exec's slate.</div>
+          <div style={{marginTop:10,fontSize:10,color:"#4a4a5e",borderTop:"1px solid #1a1a28",paddingTop:8}}>Top 3 films in this season's Universe with box office but not on any exec's slate.</div>
         </div>
       )}
     </div>
@@ -4118,7 +3993,7 @@ function Rules({leagueCtx}){
   const rules=[
     ["film",`${numPlayers} Studio Execs, each with a $${budget}M budget`],
     ["dollar",`Minimum bid of $${minBid}M per film${l.max_bid?`, maximum $${l.max_bid}M`:''}`],
-    ["calendar",`Eligibility: ${ELIGIBILITY_START} to ${ELIGIBILITY_END}`],
+    ["calendar",`Eligibility: ${seasonDates().eligibilityStart} to ${seasonDates().eligibilityEnd}`],
     ["trophy",`Oscar nominations worth $${nomBonus}M each`],
     ["trophy2",`Oscar wins worth an additional $${winBonus}M each`],
     ["crown",`Best Picture win worth an additional $${bpBonus}M`],
@@ -6162,7 +6037,7 @@ function SettingsPanel({membership, leagueCtx, onClose}){
           <a href="/about" style={{fontSize:12,color:"#6a6a7e",textDecoration:"none"}}
             onMouseEnter={e=>e.currentTarget.style.color="#e8e8f0"}
             onMouseLeave={e=>e.currentTarget.style.color="#6a6a7e"}>Help & About</a>
-          <span style={{fontSize:11,color:"#3a3a50",fontFamily:"monospace"}}>SEF 2026</span>
+          <span style={{fontSize:11,color:"#3a3a50",fontFamily:"monospace"}}>SEF {leagueCtx?.season||""}</span>
         </div>
       </div>
       <style>{`@keyframes slideInRight{from{transform:translateX(100%);opacity:0}to{transform:translateX(0);opacity:1}}`}</style>
@@ -6171,7 +6046,10 @@ function SettingsPanel({membership, leagueCtx, onClose}){
 }
 
 (async function boot(){
-  if (!IS_LEGACY) {
+  // The original single-league page (/league with no ?id=) read a Google Sheet that
+  // is no longer maintained. Send anyone arriving there to their leagues instead.
+  if (IS_LEGACY) { window.location.replace('/dashboard'); return; }
+  {
     const valid = await ensureValidSession();
     if (valid) {
       syncRealtimeAuth(valid);
