@@ -214,20 +214,7 @@ const URL_PARAMS = new URLSearchParams(window.location.search);
 const LEAGUE_UUID = URL_PARAMS.get('id') || null;
 const PUBLIC_VIEW_TOKEN = URL_PARAMS.get('view') || null;
 
-// Maps league UUIDs to their legacy text-based league_id, still used ONLY by
-// weekly_bo_snapshots/weekly_poi_snapshots/daily_bo (those are unaffected by
-// the league_picks/universe_films migration -- centralizing them is a
-// separate, not-yet-done follow-up). The actual film slate now comes from
-// league_picks, keyed by LEAGUE_UUID directly -- see the IS_LEGACY branch
-// in the data-loading useEffect below.
-const LEGACY_ID_MAP = {
-  'c388b799-6240-46c4-ba75-da8a0d2e8db5': 'sef-2026',
-};
-
-// If this UUID has a legacy mapping, use that for weekly/daily snapshot
-// queries. Otherwise use the UUID itself.
-const LEAGUE_ID = LEAGUE_UUID ? (LEGACY_ID_MAP[LEAGUE_UUID] || LEAGUE_UUID) : 'sef-2026';
-const IS_LEGACY = !LEAGUE_UUID;
+// Bare /league (no ?id=) was the retired single-league page; boot() at the bottom redirects it.
 
 // Auth gate is async (see boot() near the bottom, which awaits ensureValidSession()
 // before deciding to redirect) so an expired-but-refreshable access token gets a
@@ -267,7 +254,6 @@ async function supabaseFetch(table, params="") {
 }
 
 async function loadLeagueContext() {
-  if (IS_LEGACY) return;
   try {
     // Public viewers never need (and must never receive) invite_code or
     // created_by, so their leagues lookup asks for a narrower column set —
@@ -313,7 +299,6 @@ async function loadLeagueContext() {
   }
 }
 
-const SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQT4IsjOToQ2VQHupKe7NLLlrD6SxkYALrnOAwvtSKgL-wWr9SPFZ8O3ru7_AhXl9wi5isLXg_Psxjg/pub?output=csv";
 // Season-specific dates, derived from the current league's season (so a 2027-season
 // league counts down to ITS Oscars, not the 2026 ones). Falls back to the 2026 season
 // when there's no league context. Add a season to seasonWindowFor() to support it.
@@ -330,12 +315,9 @@ function seasonDates(){
   };
 }
 const ENDGAME_FILMS_LEFT_THRESHOLD = 5; // OR trigger when ≤5 films unreleased
-// Mutable (not const): for a real league (!IS_LEGACY) these get rebuilt from
-// that league's actual league_members in loadLeagueContext() below, so each
-// league shows its own roster/colors instead of the original hardcoded
-// 5-person cast. The values here remain the permanent, untouched defaults
-// for the bare-URL IS_LEGACY path.
-let EXEC_COLORS = { BRANDON: "#3498db", RAFA: "#e74c3c", KAI: "#9b59b6", PATRICK: "#e67e22", BB: "#2ecc71" };
+// Rebuilt per league in the main data effect below from the teams that appear in that
+// league's picks (colors, studio display names, account-level player names).
+let EXEC_COLORS = {};
 // Rotation used to assign a color to each team_name in a real league, in
 // join order. Distinct enough to tell apart at a glance up to ~10 teams.
 const TEAM_COLOR_PALETTE = ["#3498db","#e74c3c","#9b59b6","#e67e22","#2ecc71","#1abc9c","#e91e63","#f1c40f","#5b6ee1","#95a5a6"];
@@ -358,21 +340,17 @@ function daysUntil(date){
   return Math.ceil((date-new Date())/864e5);
 }
 
-// Fallback studio names — will be overridden by sheet data if available
-const DEFAULT_STUDIOS = { BRANDON: "Continental Studios", RAFA: "Dwayne the Rock's Wig", KAI: "Ginza Films", PATRICK: "Brock Heimer", BB: "No Wot Studios" };
-// Mutable for the same reason as EXEC_COLORS above — rebuilt per real league.
-let DISPLAY = { BRANDON: "Brandon", RAFA: "Rafa", KAI: "Kai", PATRICK: "Patrick", BB: "BB" };
-// The account-level player name (profiles.display_name), as opposed to
-// DISPLAY -- which for a real (non-legacy) league actually holds the
-// per-league STUDIO name (see the rebuild in the main data effect below;
-// the "DISPLAY" name predates the multi-league architecture, back when a
-// team's key/label genuinely was the player's own name). Rebuilt per
-// league from LEAGUE_MEMBERS' joined profile; legacy mode keeps these
-// same hardcoded first names since that path is never rebuilt.
-let PLAYER_NAMES = { BRANDON: "Brandon", RAFA: "Rafa", KAI: "Kai", PATRICK: "Patrick", BB: "BB" };
+// Mutable: rebuilt per league. For a real league DISPLAY holds the per-league STUDIO name
+// (the "DISPLAY" name predates multi-league, when a team key was the player's own name).
+let DISPLAY = {};
+// The account-level player name (profiles.display_name), rebuilt per league.
+let PLAYER_NAMES = {};
 const BUDGET = 500;
-// BB has $18M remaining (originally $8M + extra from GxK situation)
-// Patrick has $9M remaining. Brandon has $0 remaining.
+// Hand-entered unspent budgets for the two leagues that pre-date the Acquisitions budget
+// system (Patrick has no account in either, so his team is still the old code "PATRICK").
+// Scoped to those league ids: every other league gets its remainder from Acquisitions, and a
+// team that merely happens to be named "BB" or "PATRICK" must not inherit these numbers.
+const LEGACY_REMAINDER_LEAGUES = new Set(['c388b799-6240-46c4-ba75-da8a0d2e8db5','dafbb0fd-7b29-41ac-8b15-dd002cdc6db7']);
 const REMAINDERS = { BB: { remaining: 18 }, PATRICK: { remaining: 9 }, BRANDON: { remaining: 0 }, RAFA: { remaining: 0 }, KAI: { remaining: 0 } };
 
 // Populated per-league (see loadData's league_picks branch) when
@@ -387,282 +365,11 @@ const REMAINDERS = { BB: { remaining: 18 }, PATRICK: { remaining: 9 }, BRANDON: 
 let ACQ_BUDGETS = {};
 function getTeamRemainder(name){
   if(LEAGUE_CONTEXT?.acquisitions_enabled && ACQ_BUDGETS[name]) return ACQ_BUDGETS[name];
-  return REMAINDERS[name]||null;
+  return LEGACY_REMAINDER_LEAGUES.has(LEAGUE_UUID) ? (REMAINDERS[name]||null) : null;
 }
-
-const FALLBACK_FILMS=[{title:"Project Hail Mary",bid:87,bo:256218578,team:"BB",release:"2026-03-20",status:"released"},{title:"Ready or Not 2",bid:10,bo:22049311,team:"BRANDON",release:"2026-03-20",status:"released"},{title:"The Super Mario Galaxy Movie",bid:148,bo:307200780,team:"RAFA",release:"2026-04-01",status:"released"},{title:"Lee Cronin's The Mummy",bid:28,bo:0,team:"BRANDON",release:"2026-04-17",status:"upcoming"},{title:"Lorne",bid:10,bo:0,team:"PATRICK",release:"2026-04-17",status:"upcoming"},{title:"Michael",bid:80,bo:0,team:"BRANDON",release:"2026-04-24",status:"upcoming"},{title:"The Devil Wears Prada 2",bid:47,bo:0,team:"RAFA",release:"2026-05-01",status:"upcoming"},{title:"Palme d'Or Winner",bid:14,bo:0,team:"BRANDON",release:"2026-05-12",status:"upcoming"},{title:"I Love Boosters",bid:10,bo:0,team:"BRANDON",release:"2026-05-22",status:"upcoming"},{title:"The Mandalorian and Grogu",bid:75,bo:0,team:"PATRICK",release:"2026-05-22",status:"upcoming"},{title:"Backrooms",bid:27,bo:0,team:"BB",release:"2026-05-29",status:"upcoming"},{title:"Disclosure Day",bid:43,bo:0,team:"RAFA",release:"2026-06-12",status:"upcoming"},{title:"Scary Movie",bid:20,bo:0,team:"KAI",release:"2026-06-12",status:"upcoming"},{title:"Toy Story 5",bid:120,bo:0,team:"BRANDON",release:"2026-06-19",status:"upcoming"},{title:"Supergirl",bid:55,bo:0,team:"RAFA",release:"2026-06-26",status:"upcoming"},{title:"The Invite",bid:17,bo:0,team:"BRANDON",release:"2026-06-26",status:"upcoming"},{title:"Jackass 5",bid:10,bo:0,team:"BRANDON",release:"2026-06-26",status:"upcoming"},{title:"Minions & Monsters",bid:77,bo:0,team:"KAI",release:"2026-07-01",status:"upcoming"},{title:"Moana",bid:92,bo:0,team:"RAFA",release:"2026-07-10",status:"upcoming"},{title:"The Odyssey",bid:180,bo:0,team:"BB",release:"2026-07-17",status:"upcoming"},{title:"Evil Dead Burn",bid:20,bo:0,team:"BRANDON",release:"2026-07-24",status:"upcoming"},{title:"Spider-Man: Brand New Day",bid:130,bo:0,team:"KAI",release:"2026-07-31",status:"upcoming"},{title:"Super Troopers 3",bid:10,bo:0,team:"PATRICK",release:"2026-08-07",status:"upcoming"},{title:"One Night Only",bid:20,bo:0,team:"BRANDON",release:"2026-08-07",status:"upcoming"},{title:"End Of Oak Street",bid:15,bo:0,team:"BB",release:"2026-08-14",status:"upcoming"},{title:"Fjord",bid:19,bo:0,team:"KAI",release:"2026-08-19",status:"upcoming"},{title:"The Dog Stars",bid:10,bo:0,team:"BB",release:"2026-08-28",status:"upcoming"},{title:"How to Rob a Bank",bid:25,bo:0,team:"BRANDON",release:"2026-09-04",status:"upcoming"},{title:"TIFF - People's Choice Award",bid:19,bo:0,team:"BB",release:"2026-09-08",status:"upcoming"},{title:"Practical Magic 2",bid:13,bo:0,team:"RAFA",release:"2026-09-11",status:"upcoming"},{title:"Sense and Sensibility",bid:10,bo:0,team:"BB",release:"2026-09-11",status:"upcoming"},{title:"Resident Evil",bid:32,bo:0,team:"BRANDON",release:"2026-09-18",status:"upcoming"},{title:"Digger",bid:55,bo:0,team:"BB",release:"2026-10-02",status:"upcoming"},{title:"Verity",bid:10,bo:0,team:"KAI",release:"2026-10-02",status:"upcoming"},{title:"The Social Reckoning",bid:58,bo:0,team:"PATRICK",release:"2026-10-09",status:"upcoming"},{title:"Street Fighter",bid:10,bo:0,team:"BRANDON",release:"2026-10-16",status:"upcoming"},{title:"Clayface",bid:12,bo:0,team:"KAI",release:"2026-10-23",status:"tba"},{title:"Shaun the Sheep: Beast of Mossy Bottom",bid:10,bo:0,team:"BB",release:"2026-10-31",status:"upcoming"},{title:"Cat in the Hat",bid:32,bo:0,team:"RAFA",release:"2026-11-06",status:"upcoming"},{title:"Godzilla Minus Zero",bid:14,bo:0,team:"BB",release:"2026-11-06",status:"upcoming"},{title:"Wild Horse Nine",bid:45,bo:0,team:"BRANDON",release:"2026-11-06",status:"upcoming"},{title:"The Great Beyond",bid:31,bo:0,team:"RAFA",release:"2026-11-13",status:"upcoming"},{title:"Hunger Games: Sunrise on the Reaping",bid:60,bo:0,team:"PATRICK",release:"2026-11-20",status:"upcoming"},{title:"Hexed",bid:38,bo:0,team:"BRANDON",release:"2026-11-25",status:"upcoming"},{title:"Focker in Law",bid:11,bo:0,team:"BRANDON",release:"2026-11-25",status:"upcoming"},{title:"Madden",bid:10,bo:0,team:"BB",release:"2026-11-26",status:"upcoming"},{title:"Narnia: The Magician's Nephew",bid:18,bo:0,team:"KAI",release:"2026-11-26",status:"upcoming"},{title:"Avengers: Doomsday",bid:182,bo:0,team:"KAI",release:"2026-12-18",status:"upcoming"},{title:"Dune: Part Three",bid:169,bo:0,team:"PATRICK",release:"2026-12-18",status:"upcoming"},{title:"Angry Birds 3",bid:26,bo:0,team:"PATRICK",release:"2026-12-23",status:"upcoming"},{title:"Werwulf",bid:25,bo:0,team:"BB",release:"2026-12-25",status:"upcoming"},{title:"Jumanji: Open World",bid:60,bo:0,team:"PATRICK",release:"2026-12-25",status:"upcoming"},{title:"Children of Blood and Bone",bid:10,bo:0,team:"BRANDON",release:"2027-01-15",status:"upcoming"},{title:"Beekeeper 2",bid:10,bo:0,team:"RAFA",release:"2027-01-15",status:"upcoming"},{title:"Ice Age - Boiling Point",bid:23,bo:0,team:"PATRICK",release:"2027-02-05",status:"upcoming"},{title:"Gatto",bid:10,bo:0,team:"RAFA",release:"2027-03-05",status:"upcoming"},{title:"All of a Sudden",bid:10,bo:0,team:"KAI",release:null,status:"tba"},{title:"Being Heumann",bid:10,bo:0,team:"KAI",release:null,status:"tba"},{title:"Jack of Spades",bid:19,bo:0,team:"RAFA",release:null,status:"tba"},{title:"Once Upon A Time In Harlem",bid:12,bo:0,team:"KAI",release:null,status:"tba"},{title:"The Adventures of Cliff Booth",bid:10,bo:0,team:"BB",release:null,status:"tba"},{title:"The Entertainment System Is Down",bid:10,bo:0,team:"BB",release:null,status:"tba"}];
-
-// Fallback weekly data — manually updated each week from the spreadsheet.
-// When a weekly tab URL is provided below, live data overrides these.
-const FALLBACK_WEEKLY_BO=[
-  {week:"Mar 16",BRANDON:0,       KAI:0,RAFA:0,          PATRICK:9000000,  BB:8000000},
-  {week:"Mar 23",BRANDON:12277870,KAI:0,RAFA:0,          PATRICK:9000000,  BB:117764644},
-  {week:"Mar 30",BRANDON:16838575,KAI:0,RAFA:0,          PATRICK:9000000,  BB:177237221},
-  {week:"Apr 6", BRANDON:20173331,KAI:0,RAFA:190053455,  PATRICK:9000000,  BB:225180878},
-  {week:"Apr 13",BRANDON:22052874,KAI:0,RAFA:308117135,  PATRICK:9000000,  BB:264657974},
-  {week:"Apr 20",BRANDON:22052874,KAI:0,RAFA:363700000,  PATRICK:9000000,  BB:274200000},
-  {week:"Apr 27",BRANDON:97000000,KAI:0,RAFA:386500000,  PATRICK:9000000,  BB:290900000},
-];
-const FALLBACK_WEEKLY_POI=[
-  {week:"Mar 16",BRANDON:0,     KAI:0,RAFA:0,      PATRICK:0,     BB:0},
-  {week:"Mar 23",BRANDON:122.78,KAI:0,RAFA:0,      PATRICK:100,   BB:123.96},
-  {week:"Mar 30",BRANDON:168.39,KAI:0,RAFA:0,      PATRICK:100,   BB:186.57},
-  {week:"Apr 6", BRANDON:201.73,KAI:0,RAFA:128.41, PATRICK:100,   BB:237.03},
-  {week:"Apr 13",BRANDON:220.53,KAI:0,RAFA:208.19, PATRICK:100,   BB:278.59},
-  {week:"Apr 20",BRANDON:95,    KAI:0,RAFA:261.15, PATRICK:48.79, BB:288.63},
-  {week:"Apr 27",BRANDON:121,   KAI:0,RAFA:278.0,  PATRICK:49.62, BB:306.0},
-];
-
-// ── Live weekly tab URLs — fetched fresh on every page load ───────────────────
-// These point to the published CSV versions of the WEEKLY BO SNAPSHOT and
-// WEEKLY POI SNAPSHOT tabs. When a new row is added each week the graphs
-// update automatically the next time anyone loads the page.
-const WEEKLY_BO_URL  = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQT4IsjOToQ2VQHupKe7NLLlrD6SxkYALrnOAwvtSKgL-wWr9SPFZ8O3ru7_AhXl9wi5isLXg_Psxjg/pub?gid=1605789062&single=true&output=csv";
-const WEEKLY_POI_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQT4IsjOToQ2VQHupKe7NLLlrD6SxkYALrnOAwvtSKgL-wWr9SPFZ8O3ru7_AhXl9wi5isLXg_Psxjg/pub?gid=2107805816&single=true&output=csv";
-// Paste the published CSV URL for the DAILY BO tab here after running scrapeDailyBoxOffice()
-// File > Share > Publish to web > DAILY BO tab > CSV > Publish
-const DAILY_BO_URL   = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQT4IsjOToQ2VQHupKe7NLLlrD6SxkYALrnOAwvtSKgL-wWr9SPFZ8O3ru7_AhXl9wi5isLXg_Psxjg/pub?gid=1458756475&single=true&output=csv";
-
-// Parses a simple weekly snapshot tab.
-// Expects: row 0 = headers (Week | exec names...), rows 1+ = data
-// Works for both BO (large dollar numbers) and POI (percentage numbers).
-function parseWeeklyTab(text){
-  if(!text||text.trim().startsWith('<')) return null;
-  const rows=parseCSV(text);
-  if(!rows||rows.length<2) return null;
-
-  // Flexible name matching — handles "Brandon", "BRANDON", "bb", "BB" etc.
-  const nameMap={
-    brandon:"BRANDON",rafa:"RAFA",kai:"KAI",patrick:"PATRICK",bb:"BB",
-    "b.b":"BB","b.bennett":"BRANDON","brendan":"BRANDON",
-  };
-
-  const hRow=rows[0].map(c=>(c||"").trim().toLowerCase());
-  // Find the week column — first column labelled "week", "date", or "w/e"
-  const weekCol=hRow.findIndex(c=>c==="week"||c==="date"||c==="w/e"||c.startsWith("week"));
-  if(weekCol<0) return null;
-
-  // Map exec columns by matching header to exec names
-  const execCols={};
-  hRow.forEach((c,j)=>{
-    if(j===weekCol) return;
-    // Strip trailing decorations like "_bo", "_poi", "%", parenthetical etc.
-    const base=c.replace(/[\s_]*(bo|poi|roi|cumul.*|total|%|\(.*\))$/,"").trim();
-    if(nameMap[base]) execCols[nameMap[base]]=j;
-  });
-
-  if(Object.keys(execCols).length<2) return null;
-
-  const result=[];
-  for(let i=1;i<rows.length;i++){
-    const r=rows[i];
-    if(!r||!r[weekCol]) continue;
-    const label=(r[weekCol]||"").trim();
-    if(!label||label.toLowerCase()==="week"||label.toLowerCase()==="total") continue;
-    const row={week:label};
-    Object.entries(execCols).forEach(([team,col])=>{
-      const raw=(r[col]||"").replace(/[$,%\s]/g,"").trim();
-      row[team]=parseFloat(raw)||0;
-    });
-    result.push(row);
-  }
-  return result.length>0?result:null;
-}
-
-// Weekly sheet URL — kept for parseWeeklyData (main slate sheet scan)
-const WEEKLY_SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQT4IsjOToQ2VQHupKe7NLLlrD6SxkYALrnOAwvtSKgL-wWr9SPFZ8O3ru7_AhXl9wi5isLXg_Psxjg/pub?gid=0&single=true&output=csv";
-
-// Parse weekly BO + POI from the sheet
-// Looks for a section with "Week" as the first column header and exec names in subsequent columns
-function parseWeeklyData(rows){
-  const teams=["BRANDON","RAFA","KAI","PATRICK","BB"];
-  const nameMap={"brandon":"BRANDON","rafa":"RAFA","kai":"KAI","patrick":"PATRICK","bb":"BB"};
-
-  let headerRow=-1;
-  let weekCol=-1;
-  const boCol={};
-  const poiCol={};
-
-  // Scan every row for a header that has "week" and at least one exec name
-  for(let i=0;i<rows.length;i++){
-    const r=rows[i];
-    if(!r) continue;
-    const cells=r.map(c=>(c||"").trim().toLowerCase());
-    const wIdx=cells.findIndex(c=>c==="week"||c==="date"||c.startsWith("week"));
-    if(wIdx<0) continue;
-    // Check if this row also has exec names
-    let found=0;
-    cells.forEach((c,j)=>{
-      const base=c.replace(/[_\s]*(bo|poi|cumulative|total|%|roi)$/i,"").trim();
-      if(nameMap[base]){found++;}
-    });
-    if(found>=2){headerRow=i;weekCol=wIdx;break;}
-  }
-
-  if(headerRow<0) return null;
-
-  const hRow=rows[headerRow].map(c=>(c||"").trim().toLowerCase());
-
-  // Map exec BO columns and POI columns
-  hRow.forEach((c,j)=>{
-    if(j===weekCol) return;
-    const isPOI=c.includes("poi")||c.includes("%")||c.includes("roi");
-    const base=c.replace(/[_\s]*(bo|poi|cumulative|total|%|roi|earned)$/i,"").trim();
-    const team=nameMap[base];
-    if(!team) return;
-    if(isPOI) poiCol[team]=j;
-    else boCol[team]=j;
-  });
-
-  // If we only found BO columns (no POI), that's fine — POI will fall back
-  const hasBO=Object.keys(boCol).length>=2;
-  if(!hasBO) return null;
-
-  const weeklyBO=[];
-  const weeklyPOI=[];
-
-  for(let i=headerRow+1;i<rows.length;i++){
-    const r=rows[i];
-    if(!r||!r[weekCol]) continue;
-    const label=(r[weekCol]||"").trim();
-    if(!label||label.toLowerCase()==="week"||label.toLowerCase()==="total") continue;
-
-    const boRow={week:label};
-    const poiRow={week:label};
-    teams.forEach(t=>{
-      boRow[t]=boCol[t]!==undefined?parseNum(r[boCol[t]]):0;
-      poiRow[t]=poiCol[t]!==undefined?parseFloat((r[poiCol[t]]||"0").replace(/[$,%]/g,""))||0:0;
-    });
-    weeklyBO.push(boRow);
-    if(Object.keys(poiCol).length>=2) weeklyPOI.push(poiRow);
-  }
-
-  if(weeklyBO.length===0) return null;
-  return{weeklyBO, weeklyPOI:weeklyPOI.length>0?weeklyPOI:null};
-}
-
-// Weekly data comes entirely from fallback constants or the sheet.
-// We do NOT compute it from live film data — the sheet is the source of truth.
-// To add a new week: update FALLBACK_WEEKLY_BO and FALLBACK_WEEKLY_POI below.
 
 function fmt(n){if(Math.abs(n)>=1e9)return"$"+(n/1e9).toFixed(2)+"B";if(Math.abs(n)>=1e6)return"$"+(n/1e6).toFixed(1)+"M";if(Math.abs(n)>=1e3)return"$"+(n/1e3).toFixed(0)+"K";return"$"+n.toLocaleString()}
 function daysLeft(){return Math.ceil((seasonDates().oscarDate-new Date())/864e5)}
-function parseCSV(t){const l=t.split("\n"),r=[];for(const line of l){const row=[];let f="",q=false;for(let j=0;j<line.length;j++){const c=line[j];if(q){if(c==='"'&&line[j+1]==='"'){f+='"';j++}else if(c==='"')q=false;else f+=c}else{if(c==='"')q=true;else if(c===','){row.push(f.trim());f=""}else f+=c}}row.push(f.trim());r.push(row)}return r}
-function parseNum(v){if(!v)return 0;const n=parseInt(String(v).replace(/[$,]/g,""),10);return isNaN(n)?0:n}
-
-function processCSV(rows){
-  const films=[];
-  const studioNames={...DEFAULT_STUDIOS};
-  if(!rows||rows.length<2) return{films,studioNames};
-
-  // ── Detect column positions from header row ───────────────────────────────
-  // Use partial matching so "Domestic Box Office", "Dom BO", "BOX OFFICE" etc. all work
-  const hRow=rows[0].map(c=>(c||"").trim().toUpperCase());
-
-  let titleCol=-1,bidCol=-1,boCol=-1,teamCol=-1,releaseCol=-1,openCol=-1,lockedCol=-1,voidCol=-1;
-
-  for(let j=0;j<hRow.length;j++){
-    const h=hRow[j];
-    if(titleCol<0 && (h.includes("FILM")||h.includes("TITLE")||h.includes("MOVIE"))) titleCol=j;
-    if(bidCol<0   && (h.includes("BID")||h.includes("PURCHASE")||h.includes("PRICE")||h.includes("AMOUNT"))) bidCol=j;
-    if(openCol<0  && (h.includes("OPENING")||h.includes("OPEN WEEKEND"))) openCol=j;
-    // BO must NOT match the opening column — require "DOMESTIC"/"BOX OFFICE"/"GROSS" and not "OPENING"
-    if(boCol<0    && !h.includes("OPENING") && (h.includes("DOMESTIC")||h.includes("BOX OFFICE")||(h==="BO")||(h==="DOM BO")||h.includes("GROSS"))) boCol=j;
-    if(teamCol<0  && (h.includes("EXEC")||h.includes("TEAM")||h.includes("OWNER")||(h==="NAME"))) teamCol=j;
-    if(releaseCol<0&&(h.includes("RELEASE")||h.includes("DATE"))) releaseCol=j;
-    if(lockedCol<0&&(h==="LOCKED"||h==="LOCK"||h.includes("LOCK"))) lockedCol=j;
-    if(voidCol<0&&(h==="VOID"||h==="FORFEIT"||h==="VOIDED")) voidCol=j;
-  }
-
-  // Log what we detected so mismatches are easy to spot in the browser console
-  console.log("[processCSV] Detected columns →",
-    `title:${titleCol}(${hRow[titleCol]||"?"})`,
-    `bid:${bidCol}(${hRow[bidCol]||"?"})`,
-    `open:${openCol}(${hRow[openCol]||"?"})`,
-    `bo:${boCol}(${hRow[boCol]||"?"})`,
-    `team:${teamCol}(${hRow[teamCol]||"?"})`,
-    `release:${releaseCol}(${hRow[releaseCol]||"?"})`,
-    `locked:${lockedCol}(${lockedCol>=0?hRow[lockedCol]:"not found"})`
-  );
-
-  // If header detection failed, warn loudly and use known positional fallback
-  const fallback=(titleCol<0||bidCol<0||boCol<0||teamCol<0);
-  if(fallback){
-    console.warn("[processCSV] Header detection failed — falling back to fixed column positions. Sheet headers found:", hRow.slice(0,9).join(" | "));
-    titleCol=0; bidCol=2; openCol=3; boCol=4; teamCol=5; releaseCol=6; lockedCol=8;
-  }
-  // lockedCol gets its own fallback even when other headers are found —
-  // Column I (index 8) may have no header row entry if the script added it silently
-  if(lockedCol<0) lockedCol=8;
-
-  // ── Extract studio names from summary block (columns 7 + 11 historically) ─
-  for(let i=1;i<rows.length;i++){
-    const r=rows[i];if(!r||r.length<12)continue;
-    const studio=r[7]||"";const owner=(r[11]||"").trim();
-    if(studio&&owner&&EXEC_COLORS[owner.toUpperCase()]){studioNames[owner.toUpperCase()]=studio;}
-    const ownerMap={"Brandon":"BRANDON","Rafa":"RAFA","Kai":"KAI","Patrick":"PATRICK","BB":"BB"};
-    if(ownerMap[owner]&&studio){studioNames[ownerMap[owner]]=studio;}
-  }
-
-  // ── Parse film rows ───────────────────────────────────────────────────────
-  for(let i=1;i<rows.length;i++){
-    const r=rows[i];if(!r||r.length<3)continue;
-    const title=(r[titleCol]||"").trim();
-    const team=(r[teamCol]||"").trim().toUpperCase();
-    if(!title||!team||!EXEC_COLORS[team])continue;
-    if(title.toLowerCase().includes("remainder"))continue;
-    if(title.toLowerCase().includes("godzilla x kong"))continue;
-    const bid=parseNum(r[bidCol]);
-    const boRaw=(r[boCol]||"").trim();
-    const boNum=parseNum(boRaw);
-    let status="upcoming",bo=0;
-
-    // Normalize release date to YYYY-MM-DD regardless of sheet format
-    const releaseRaw=(r[releaseCol]||"").trim();
-    let release=null;
-    if(releaseRaw&&releaseRaw!=="TBA"&&releaseRaw!=="No release date"&&releaseRaw!==""){
-      if(/^\d{4}-\d{2}-\d{2}/.test(releaseRaw)){
-        // Already ISO: 2026-05-22 — use as-is, no Date parsing needed (avoids UTC shift)
-        release=releaseRaw.slice(0,10);
-      } else {
-        // Parse other formats: 5/22/2026, May 22 2026, etc.
-        // Use UTC methods to avoid timezone-shifting the date
-        const d=new Date(releaseRaw);
-        if(!isNaN(d)) release=d.getUTCFullYear()+"-"+String(d.getUTCMonth()+1).padStart(2,"0")+"-"+String(d.getUTCDate()).padStart(2,"0");
-      }
-    }
-
-    // Determine status from BO first, then from release date
-    if(boNum>0){status="released";bo=boNum;}
-    else if(!release){status="tba";}
-    else{
-      const releaseDate=parseReleaseDate(release);
-      const today=new Date();today.setHours(0,0,0,0);
-      if(releaseDate&&releaseDate<=today){status="released";}
-      else{status="upcoming";}
-    }
-    // Opening weekend — "Film not released" / blank / non-numeric → 0
-    const openRaw=openCol>=0?(r[openCol]||"").trim():"";
-    const openNum=parseNum(openRaw);
-    const opening=openNum>0?openNum:0;
-    const locked=lockedCol>=0&&(r[lockedCol]||"").toString().trim().toUpperCase()==="LOCKED";
-    const voided=voidCol>=0&&(r[voidCol]||"").toString().trim().toUpperCase()==="VOID";
-    if(bid>0) films.push({title,bid,bo,opening,locked,voided,team,release,status});
-  }
-
-  // ── Sanity check: log per-exec BO totals so mismatches are obvious ────────
-  const totals={};
-  films.forEach(f=>{totals[f.team]=(totals[f.team]||0)+(f.bo||0);});
-  console.log("[processCSV] BO totals per exec →", Object.entries(totals).map(([t,v])=>`${t}:${(v/1e6).toFixed(1)}M`).join("  "));
-  const todayFilms=films.filter(f=>isReleaseDay(f.release));
-  if(todayFilms.length>0) console.log("[processCSV] Today's releases →", todayFilms.map(f=>`${f.title}(release:${f.release})`).join("  "));
-  else console.log("[processCSV] No films releasing today. TODAY="+TODAY);
-  const releasedFilms=films.filter(f=>f.bo>0);
-  console.log("[processCSV]", films.length, "films parsed. Released:", releasedFilms.length);
-  console.log("[processCSV] Released films →", releasedFilms.map(f=>`${f.title}(${f.team}):${(f.bo/1e6).toFixed(1)}M`).join("  "));
-
-  return{films,studioNames};
-}
 
 // ─── TOOLTIP ──────────────────
 function Tooltip({x,y,children,visible}){if(!visible)return null;return(<div style={{position:"fixed",left:Math.min(x,typeof window!=="undefined"?window.innerWidth-220:500),top:Math.max(y-10,10),transform:"translateY(-100%)",background:"#1e1e2e",border:"1px solid #3a3a50",borderRadius:8,padding:"8px 12px",fontSize:12,color:"#e8e8f0",pointerEvents:"none",zIndex:9999,boxShadow:"0 8px 30px rgba(0,0,0,0.6)",maxWidth:260}}>{children}</div>)}
@@ -719,6 +426,14 @@ function LineChart({data,teams,valueFormatter,title,colorMap,labelMap}){
     const idx=Math.round((mx-pL)/xStep);
     if(idx>=0&&idx<data.length)setHoverIdx(idx);
   },[data.length,xStep]);
+
+  // A brand-new league has no weekly snapshots yet: show a placeholder instead of crashing.
+  if(!data||data.length===0) return(
+    <div ref={containerRef} style={{background:"#111119",border:"1px solid #222233",borderRadius:10,padding:"16px 14px"}}>
+      <div style={{fontSize:12,fontWeight:700,color:"#d4a843",letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:6}}>{title||"Trend"}</div>
+      <div style={{fontSize:12,color:"#6a6a7e"}}>This chart fills in once the first weekly snapshot has been taken.</div>
+    </div>
+  );
 
   return(
     <div ref={containerRef}>
@@ -1056,7 +771,7 @@ function WeeklyTotalBarChart({data,teams}){
 }
 
 // ─── BY PURCHASE PRICE TAB ──────────────────
-function PurchasePriceTab({films,data,studioNames}){
+function PurchasePriceTab({films,data}){
   const[sortCol,setSortCol]=useState("bid");
   const[sortDir,setSortDir]=useState("desc");
   const[filterTeam,setFilterTeam]=useState("ALL");
@@ -1212,12 +927,11 @@ function EndgameCountdownBanner({theme}){
 // ─── MAIN ──────────────────
 function App(){
   const[tab,setTab]=useState(localStorage.getItem('sef_default_tab')||"standings");
-  const[films,setFilms]=useState(IS_LEGACY?FALLBACK_FILMS:[]);
-  const[studioNames,setStudioNames]=useState(IS_LEGACY?DEFAULT_STUDIOS:{});
+  const[films,setFilms]=useState([]);
   const[liveStatus,setLiveStatus]=useState("loading");
   const[expandedExecs,setExpandedExecs]=useState(new Set());
-  const[weeklyBO,setWeeklyBO]=useState(FALLBACK_WEEKLY_BO);
-  const[weeklyPOI,setWeeklyPOI]=useState(FALLBACK_WEEKLY_POI);
+  const[weeklyBO,setWeeklyBO]=useState([]);
+  const[weeklyPOI,setWeeklyPOI]=useState([]);
   const[membership,setMembership]=useState(null);
   const[leagueCtx,setLeagueCtx]=useState(null);
   const[leagueMembers,setLeagueMembers]=useState([]);
@@ -1236,7 +950,6 @@ function App(){
   // directly after an RPC changes it, since Realtime only pushes changes to
   // components that are actually subscribed (DraftRoomTab), not this level.
   async function refreshDraftSession(){
-    if(IS_LEGACY) return;
     try{
       const rows=await supabaseFetch("draft_sessions", `league_id=eq.${LEAGUE_UUID}&select=*`);
       setDraftSession((rows&&rows[0])||null);
@@ -1248,7 +961,7 @@ function App(){
 
   useEffect(()=>{
     async function loadData(){
-      // Load league context first (no-op for legacy mode)
+      // Load league context first
       await loadLeagueContext();
       // Sync module-level context into React state so components re-render
       if(LEAGUE_CONTEXT) setLeagueCtx(LEAGUE_CONTEXT);
@@ -1257,53 +970,7 @@ function App(){
 
       // ── 1. Main slate ─────────────────────────────────────────────────────
       let slateLoaded=false;
-      if(IS_LEGACY){
-        // Bare /league.html with no ?id= at all -- deliberately untouched by
-        // the league_picks/universe_films migration. Still reads picks
-        // directly, same CSV fallback as always.
-        try{
-          const rows = await supabaseFetch("picks", `league_id=eq.${LEAGUE_ID}&order=release_date.asc.nullslast`);
-          console.log("[supabase] picks rows:", rows.length);
-          if(rows.length>0){
-            const films = rows.map(r=>({
-              title:    r.title,
-              bid:      Number(r.bid),
-              bo:       Number(r.bo),
-              team:     r.team,
-              release:  r.release_date || null,
-              status:   r.status || (r.release_date ? "upcoming" : "tba"),
-              locked:   !!r.locked,
-              voided:   !!r.voided,
-              opening:  Number(r.opening_weekend||0),
-              bom_id:   r.bom_release_id||null,
-              imdb_id:  r.imdb_id||null,
-            }));
-            setFilms(films);
-            setLiveStatus("live");
-            slateLoaded=true;
-            console.log("[supabase] slate loaded successfully");
-          }
-        } catch(e){
-          console.error("[supabase] picks fetch error:", e.message);
-          for(let attempt=0;attempt<2;attempt++){
-            try{
-              const res=await fetch(SHEET_CSV_URL);
-              const text=await res.text();
-              const rows=parseCSV(text);
-              const result=processCSV(rows);
-              if(result.films.length>0){
-                setFilms(result.films);
-                setStudioNames(result.studioNames);
-                setLiveStatus("live");
-                slateLoaded=true;
-                break;
-              }
-            }catch(e2){
-              if(attempt===0) await new Promise(r=>setTimeout(r,1500));
-            }
-          }
-        }
-      } else {
+      {
         // Every real league (including sef-2026's own ?id=c388b799... URL) --
         // film slate + box office now come from league_picks joined against
         // universe_films, so 20 leagues drafting the same film share one
@@ -1317,7 +984,7 @@ function App(){
             // Note: no rows.length>0 guard here on purpose. Zero rows is a
             // real, valid state for a brand-new league (no picks drafted
             // yet), not a failure -- it should render an empty slate, not
-            // silently fall through to FALLBACK_FILMS's sample data.
+            // silently show anything but an empty slate.
             const films = rows.map(r=>{
               const uf = r.universe_films || null; // null for a Festival Futures placeholder pick
               const release = uf?.release_date || r.release_date || null;
@@ -1418,14 +1085,9 @@ function App(){
       if(!slateLoaded) setLiveStatus("fallback");
 
       // ── 2. Weekly BO snapshots — from Supabase ──────────────────────────
-      // Unlike daily_bo below, these two are now written by
-      // snapshot_weekly_bo_and_poi() (migration 046) keyed by the REAL
-      // leagues.id uuid straight from league_picks.league_id -- never the
-      // legacy "sef-2026" text id, even for the one league LEGACY_ID_MAP
-      // maps to it. So this fetch (unlike daily_bo's) must use LEAGUE_UUID
-      // directly, not the legacy-mapped LEAGUE_ID, or the live league would
-      // keep reading the old frozen "sef-2026"-keyed rows forever.
-      const weeklySnapshotLeagueId = LEAGUE_UUID || LEAGUE_ID;
+      // Written by snapshot_weekly_bo_and_poi() (migration 046), keyed by the real leagues.id
+      // uuid, one set of rows per league.
+      const weeklySnapshotLeagueId = LEAGUE_UUID;
       try{
         const rows = await supabaseFetch("weekly_bo_snapshots", `league_id=eq.${weeklySnapshotLeagueId}&order=snapshot_date.asc`);
         if(rows.length>0){
@@ -1506,8 +1168,8 @@ function App(){
   // counter behind it. seasonNumberLabel now reflects leagues.season_number
   // (migration 042, incremented by duplicate_league() on each continuation);
   // seasonYearLabel derives the Oscar-eligibility-year range directly from
-  // leagues.season. Both fall back to the original hardcoded text for
-  // IS_LEGACY (no leagueCtx at all) or a league predating this column.
+  // leagues.season. Both fall back to the original text for
+  // a league predating this column.
   const seasonNumberLabel=leagueCtx?.season_number||1;
   const seasonYearLabel=leagueCtx?.season
     ?`${leagueCtx.season}/${String(Number(leagueCtx.season)+1).slice(-2)}`
@@ -1534,21 +1196,21 @@ function App(){
   },[endgameActive]);
 
   // Awards moves to position 2 in endgame; Calendar drops to position 3
-  const acqTab = (!IS_LEGACY&&leagueCtx?.acquisitions_enabled) ? [{id:"acquisitions",label:"Acquisitions"}] : [];
+  const acqTab = (leagueCtx?.acquisitions_enabled) ? [{id:"acquisitions",label:"Acquisitions"}] : [];
   // Only shown once the draft is actually underway (or finished) -- while
   // it's still in 'setup', the turn-order/timer config lives in ManageTab
   // instead, since there's nothing live to watch yet.
   // Opt-in per league (leagues.weekend_picks_enabled, default false).
-  const weekendTab = (!IS_LEGACY&&leagueCtx?.weekend_picks_enabled) ? [{id:"weekend",label:"Weekend Picks"}] : [];
-  const draftTab = (!IS_LEGACY&&leagueCtx?.draft_mode==="live"&&draftSession&&draftSession.status!=="setup") ? [{id:"draft",label:"Draft Room"}] : [];
+  const weekendTab = (leagueCtx?.weekend_picks_enabled) ? [{id:"weekend",label:"Weekend Picks"}] : [];
+  const draftTab = (leagueCtx?.draft_mode==="live"&&draftSession&&draftSession.status!=="setup") ? [{id:"draft",label:"Draft Room"}] : [];
   // A brand-new league with zero picks and no draft_mode chosen yet shows a
   // full-screen "how do you want to build this slate?" choice instead of
   // the normal tabs. Naturally stops applying the moment either a pick
   // lands (films.length>0, from either path) or draft_mode gets set.
-  const needsDraftModeChoice = !IS_LEGACY && !PUBLIC_VIEW_MODE && !!leagueCtx && films.length===0 && leagueCtx.draft_mode===null && liveStatus!=="loading";
+  const needsDraftModeChoice = !PUBLIC_VIEW_MODE && !!leagueCtx && films.length===0 && leagueCtx.draft_mode===null && liveStatus!=="loading";
   const tabList=endgameActive
-    ?[{id:"standings",label:"Standings"},{id:"awards",label:"Awards"},{id:"timeline",label:"Calendar"},{id:"purchase",label:"By Price"},{id:"trends",label:"Trends"},...draftTab,{id:"rules",label:"Rules"},...(isAdmin&&!IS_LEGACY?[{id:"manage",label:"Manage",admin:true}]:[])]
-    :[{id:"standings",label:"Standings"},{id:"timeline",label:"Calendar"},{id:"purchase",label:"By Price"},{id:"trends",label:"Trends"},{id:"awards",label:"Awards"},...draftTab,{id:"rules",label:"Rules"},...(isAdmin&&!IS_LEGACY?[{id:"manage",label:"Manage",admin:true}]:[])];
+    ?[{id:"standings",label:"Standings"},{id:"awards",label:"Awards"},{id:"timeline",label:"Calendar"},{id:"purchase",label:"By Price"},{id:"trends",label:"Trends"},...draftTab,{id:"rules",label:"Rules"},...(isAdmin?[{id:"manage",label:"Manage",admin:true}]:[])]
+    :[{id:"standings",label:"Standings"},{id:"timeline",label:"Calendar"},{id:"purchase",label:"By Price"},{id:"trends",label:"Trends"},{id:"awards",label:"Awards"},...draftTab,{id:"rules",label:"Rules"},...(isAdmin?[{id:"manage",label:"Manage",admin:true}]:[])];
 
   // Experimental features get their own second bar (violet, "ALPHA" chip) so
   // everyone can tell at a glance they're still being playtested.
@@ -1588,7 +1250,7 @@ function App(){
       {/* Endgame top accent bar */}
       {endgameActive&&<div className="endgame-accent-bar" style={{position:"fixed",top:0,left:0,right:0,height:3,background:"linear-gradient(90deg, transparent, #d4a843 20%, #fbbf24 50%, #d4a843 80%, transparent)",zIndex:100,pointerEvents:"none"}}/>}
       {/* League nav header - shown for all UUID-based leagues */}
-      {!IS_LEGACY&&<div style={{position:"sticky",top:0,zIndex:50,height:52,padding:"0 16px",display:"flex",alignItems:"center",justifyContent:"space-between",background:"rgba(8,8,13,0.95)",backdropFilter:"blur(12px)",borderBottom:"1px solid #222233"}}>
+      {<div style={{position:"sticky",top:0,zIndex:50,height:52,padding:"0 16px",display:"flex",alignItems:"center",justifyContent:"space-between",background:"rgba(8,8,13,0.95)",backdropFilter:"blur(12px)",borderBottom:"1px solid #222233"}}>
         <div style={{display:"flex",alignItems:"center",gap:12,minWidth:0}}>
           <a href={PUBLIC_VIEW_MODE?"/":"/dashboard"} style={{display:"flex",alignItems:"center",gap:6,fontFamily:"monospace",fontSize:13,color:"#6a6a7e",textDecoration:"none",flexShrink:0,transition:"color 0.15s"}}
             onMouseEnter={e=>e.currentTarget.style.color="#e8e8f0"}
@@ -1711,19 +1373,19 @@ function App(){
             {alphaTabList.map(t=>(<button key={t.id} onClick={()=>setTab(t.id)} style={{flex:1,padding:"9px 4px",border:"none",borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:700,letterSpacing:"0.05em",textTransform:"uppercase",whiteSpace:"nowrap",background:tab===t.id?"rgba(139,92,246,0.22)":"transparent",color:tab===t.id?"#c4b5fd":"#8b7bbf"}}>{t.label}</button>))}
           </div>
         )}
-        {tab==="standings"&&<div key="standings" style={{animation:"fadeSlideUp 0.4s ease-out both"}}><StandingsTab data={data} studioNames={studioNames} expandedExecs={expandedExecs} setExpandedExecs={setExpandedExecs} liveStatus={liveStatus} myTeam={myTeam}/></div>}
-        {tab==="timeline"&&<div key="timeline" style={{animation:"fadeSlideUp 0.4s ease-out both"}}><CalendarView films={films} studioNames={studioNames}/></div>}
-        {tab==="trends"&&<TrendsTab films={films} data={data} studioNames={studioNames} weeklyBO={weeklyBO} weeklyPOI={weeklyPOI} leagueCtx={leagueCtx}/>}
-        {tab==="purchase"&&<div key="purchase" style={{animation:"fadeSlideUp 0.4s ease-out both"}}><PurchasePriceTab films={films} data={data} studioNames={studioNames}/></div>}
+        {tab==="standings"&&<div key="standings" style={{animation:"fadeSlideUp 0.4s ease-out both"}}><StandingsTab data={data} expandedExecs={expandedExecs} setExpandedExecs={setExpandedExecs} liveStatus={liveStatus} myTeam={myTeam}/></div>}
+        {tab==="timeline"&&<div key="timeline" style={{animation:"fadeSlideUp 0.4s ease-out both"}}><CalendarView films={films}/></div>}
+        {tab==="trends"&&<TrendsTab films={films} data={data} weeklyBO={weeklyBO} weeklyPOI={weeklyPOI} leagueCtx={leagueCtx}/>}
+        {tab==="purchase"&&<div key="purchase" style={{animation:"fadeSlideUp 0.4s ease-out both"}}><PurchasePriceTab films={films} data={data}/></div>}
         {tab==="awards"&&<div key="awards" style={{animation:"fadeSlideUp 0.4s ease-out both"}}><AwardsTab films={films} leagueCtx={leagueCtx}/></div>}
-        {tab==="weekend"&&!IS_LEGACY&&leagueCtx?.weekend_picks_enabled&&<div key="weekend" style={{animation:"fadeSlideUp 0.4s ease-out both"}}><WeekendErrorBoundary><WeekendPicksTab leagueContext={leagueCtx} userMembership={membership}/></WeekendErrorBoundary></div>}
-        {tab==="acquisitions"&&!IS_LEGACY&&leagueCtx?.acquisitions_enabled&&<div key="acquisitions" style={{animation:"fadeSlideUp 0.4s ease-out both"}}><AcquisitionsTab leagueContext={leagueCtx} members={leagueMembers} userMembership={membership}/></div>}
-        {tab==="draft"&&!IS_LEGACY&&draftTab.length>0&&<div key="draft" style={{animation:"fadeSlideUp 0.4s ease-out both"}}><DraftRoomTab leagueContext={leagueCtx} members={leagueMembers} userMembership={membership} films={films} draftSession={draftSession} setDraftSession={setDraftSession}/></div>}
+        {tab==="weekend"&&leagueCtx?.weekend_picks_enabled&&<div key="weekend" style={{animation:"fadeSlideUp 0.4s ease-out both"}}><WeekendErrorBoundary><WeekendPicksTab leagueContext={leagueCtx} userMembership={membership}/></WeekendErrorBoundary></div>}
+        {tab==="acquisitions"&&leagueCtx?.acquisitions_enabled&&<div key="acquisitions" style={{animation:"fadeSlideUp 0.4s ease-out both"}}><AcquisitionsTab leagueContext={leagueCtx} members={leagueMembers} userMembership={membership}/></div>}
+        {tab==="draft"&&draftTab.length>0&&<div key="draft" style={{animation:"fadeSlideUp 0.4s ease-out both"}}><DraftRoomTab leagueContext={leagueCtx} members={leagueMembers} userMembership={membership} films={films} draftSession={draftSession} setDraftSession={setDraftSession}/></div>}
         {tab==="rules"&&<div key="rules" style={{animation:"fadeSlideUp 0.4s ease-out both"}}><Rules leagueCtx={leagueCtx}/></div>}
-        {tab==="manage"&&isAdmin&&!IS_LEGACY&&<div key="manage" style={{animation:"fadeSlideUp 0.4s ease-out both"}}><ManageTab leagueContext={leagueCtx} members={leagueMembers} userMembership={membership} draftSession={draftSession} refreshDraftSession={refreshDraftSession} onGoToDraftRoom={()=>setTab("draft")}/></div>}
+        {tab==="manage"&&isAdmin&&<div key="manage" style={{animation:"fadeSlideUp 0.4s ease-out both"}}><ManageTab leagueContext={leagueCtx} members={leagueMembers} userMembership={membership} draftSession={draftSession} refreshDraftSession={refreshDraftSession} onGoToDraftRoom={()=>setTab("draft")}/></div>}
         </div>
         )}
-        <div style={{textAlign:"center",padding:"24px 0 8px",fontSize:10,color:"#3a3a4e",letterSpacing:"0.12em",textTransform:"uppercase",fontFamily:"monospace"}}>{days} days until Oscar Sunday &bull; March 14, 2027</div>
+        <div style={{textAlign:"center",padding:"24px 0 8px",fontSize:10,color:"#3a3a4e",letterSpacing:"0.12em",textTransform:"uppercase",fontFamily:"monospace"}}>{days} days until Oscar Sunday &bull; {seasonDates().eligibilityEnd}</div>
       </div>
       <style>{`
         @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
@@ -2380,7 +2042,7 @@ function useRankFlipAnimation(ranked,liveStatus,rankField,keys){
   const isAnimating=phase==="before"||phase==="animate";
   return {displayOrder:isAnimating?oldOrder:ranked,phase,rankChanges,cardRefs,deltaRef};
 }
-function StandingsTab({data,studioNames,expandedExecs,setExpandedExecs,liveStatus,myTeam}){
+function StandingsTab({data,expandedExecs,setExpandedExecs,liveStatus,myTeam}){
   const[mode,setMode]=useState("bo");
   function toggleExec(name){
     setExpandedExecs(prev=>{const next=new Set(prev);next.has(name)?next.delete(name):next.add(name);return next;});
@@ -2394,8 +2056,8 @@ function StandingsTab({data,studioNames,expandedExecs,setExpandedExecs,liveStatu
         ))}
       </div>
       {mode==="bo"
-        ?<StandingsBO data={data} studioNames={studioNames} expandedExecs={expandedExecs} toggleExec={toggleExec} liveStatus={liveStatus} myTeam={myTeam}/>
-        :<StandingsPOI data={data} studioNames={studioNames} expandedExecs={expandedExecs} toggleExec={toggleExec} liveStatus={liveStatus} myTeam={myTeam}/>
+        ?<StandingsBO data={data} expandedExecs={expandedExecs} toggleExec={toggleExec} liveStatus={liveStatus} myTeam={myTeam}/>
+        :<StandingsPOI data={data} expandedExecs={expandedExecs} toggleExec={toggleExec} liveStatus={liveStatus} myTeam={myTeam}/>
       }
       <AcqBudgetPanel ranked={data.ranked} myTeam={myTeam}/>
     </div>
@@ -2472,7 +2134,7 @@ function RefundBanner({films,onGo}){
   );
 }
 
-function SlateDrawer({exec,studioNames,myTeam}){
+function SlateDrawer({exec,myTeam}){
   const[sortMode,setSortMode]=useState("release");
   const[confirmingId,setConfirmingId]=useState(null);
   const[refunding,setRefunding]=useState(false);
@@ -2606,7 +2268,7 @@ function SlateDrawer({exec,studioNames,myTeam}){
   );
 }
 
-function StandingsBO({data,studioNames,expandedExecs,toggleExec,liveStatus,myTeam}){
+function StandingsBO({data,expandedExecs,toggleExec,liveStatus,myTeam}){
   const{ranked}=data;
   const maxGT=Math.max(...ranked.map(e=>e.grandTotal));
   const[myCardFlash,setMyCardFlash]=useState(false);
@@ -2691,7 +2353,7 @@ function StandingsBO({data,studioNames,expandedExecs,toggleExec,liveStatus,myTea
                     <div style={{width:10,height:10,borderRadius:"50%",background:EXEC_COLORS[exec.name],flexShrink:0}}/>
                     <span style={{fontWeight:800,fontSize:16,flexShrink:0}}>{PLAYER_NAMES[exec.name]}</span>
                     {myTeam&&exec.name===myTeam&&<span style={{fontSize:9,fontWeight:700,letterSpacing:"0.1em",padding:"2px 6px",borderRadius:4,background:"rgba(245,200,66,0.12)",color:"#d4a843",border:"1px solid rgba(245,200,66,0.3)"}}>YOU</span>}
-                    <span style={{fontSize:11,color:"#6a6a7e",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",minWidth:0}}>{IS_LEGACY?studioNames[exec.name]:DISPLAY[exec.name]}</span>
+                    <span style={{fontSize:11,color:"#6a6a7e",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",minWidth:0}}>{DISPLAY[exec.name]}</span>
                     <span style={{fontSize:10,color:"#4a4a5e",fontFamily:"monospace",flexShrink:0,whiteSpace:"nowrap"}}>· {exec.filmCount}</span>
                   </div>
                   <div style={{display:"flex",gap:12,marginTop:5,fontSize:11,color:"#6a6a7e",fontFamily:"monospace",flexWrap:"wrap"}}>
@@ -2717,7 +2379,7 @@ function StandingsBO({data,studioNames,expandedExecs,toggleExec,liveStatus,myTea
                 </div>
                 <div style={{color:"#6a6a7e",fontSize:12,flexShrink:0,width:20,textAlign:"center"}}>{isOpen?"▲":"▼"}</div>
               </div>
-              {isOpen&&<SlateDrawer exec={exec} studioNames={studioNames} myTeam={myTeam}/>}
+              {isOpen&&<SlateDrawer exec={exec} myTeam={myTeam}/>}
             </div>
           );
         })}
@@ -2739,7 +2401,7 @@ function StandingsBO({data,studioNames,expandedExecs,toggleExec,liveStatus,myTea
   );
 }
 
-function StandingsPOI({data,studioNames,expandedExecs,toggleExec,liveStatus,myTeam}){
+function StandingsPOI({data,expandedExecs,toggleExec,liveStatus,myTeam}){
   const{poiRanked}=data;
   const{displayOrder,phase,rankChanges,cardRefs,deltaRef}=useRankFlipAnimation(poiRanked,liveStatus,"poiRank",RANK_KEYS_POI);
   const isAnimating=phase!=="done";
@@ -2780,7 +2442,7 @@ function StandingsPOI({data,studioNames,expandedExecs,toggleExec,liveStatus,myTe
                 </div>
               )}
             </div>
-            <div style={{minWidth:0}}><div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"nowrap",minWidth:0}}><div style={{width:10,height:10,borderRadius:"50%",background:EXEC_COLORS[exec.name],flexShrink:0}}/><span style={{fontWeight:800,fontSize:16,flexShrink:0}}>{PLAYER_NAMES[exec.name]}</span><span style={{fontSize:11,color:"#6a6a7e",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",minWidth:0}}>{IS_LEGACY?studioNames[exec.name]:DISPLAY[exec.name]}</span><span style={{fontSize:10,color:"#4a4a5e",fontFamily:"monospace",flexShrink:0,whiteSpace:"nowrap"}}>· {exec.filmCount}</span></div>
+            <div style={{minWidth:0}}><div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"nowrap",minWidth:0}}><div style={{width:10,height:10,borderRadius:"50%",background:EXEC_COLORS[exec.name],flexShrink:0}}/><span style={{fontWeight:800,fontSize:16,flexShrink:0}}>{PLAYER_NAMES[exec.name]}</span><span style={{fontSize:11,color:"#6a6a7e",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",minWidth:0}}>{DISPLAY[exec.name]}</span><span style={{fontSize:10,color:"#4a4a5e",fontFamily:"monospace",flexShrink:0,whiteSpace:"nowrap"}}>· {exec.filmCount}</span></div>
               <div style={{display:"flex",gap:12,marginTop:5,fontSize:11,color:"#6a6a7e",fontFamily:"monospace",flexWrap:"wrap"}}>
                 {(()=>{
                   const spent=exec.films.filter(f=>f.status==="released"||f.bo>0||f.voided).reduce((s,f)=>s+f.bid,0);
@@ -2797,7 +2459,7 @@ function StandingsPOI({data,studioNames,expandedExecs,toggleExec,liveStatus,myTe
             <div style={{textAlign:"right"}}><div style={{fontFamily:"monospace",fontSize:18,fontWeight:700,color:exec.poi>=100?"#34d399":exec.poi>0?"#f87171":"#4a4a5e"}}>{exec.poi>0?<><TickerNumber value={exec.poi} formatter={v=>Math.round(v)}/>%</>:"0%"}</div><div style={{fontSize:9,color:"#6a6a7e",textTransform:"uppercase",letterSpacing:"0.1em"}}>ROI</div></div>
             <div style={{color:"#6a6a7e",fontSize:12,flexShrink:0,width:20,textAlign:"center"}}>{isOpen?"▲":"▼"}</div>
           </div>
-          {isOpen&&<SlateDrawer exec={exec} studioNames={studioNames} myTeam={myTeam}/>}
+          {isOpen&&<SlateDrawer exec={exec} myTeam={myTeam}/>}
           </div>
         );
       })}
@@ -2809,54 +2471,6 @@ function StandingsPOI({data,studioNames,expandedExecs,toggleExec,liveStatus,myTe
 }
 
 // ─── SLATES ──────────────────
-function Slates({data,studioNames,expandedExecs,setExpandedExecs}){
-  const[sortMode,setSortMode]=useState({});
-  function toggle(name){
-    setExpandedExecs(prev=>{
-      const next=new Set(prev);
-      next.has(name)?next.delete(name):next.add(name);
-      return next;
-    });
-  }
-  return(<div>{data.ranked.map(exec=>{
-    const isOpen=expandedExecs.has(exec.name);const mode=sortMode[exec.name]||"release";
-    const films=[...exec.films].sort((a,b)=>mode==="bid"?b.bid-a.bid:mode==="release"?(!a.release?1:!b.release?-1:new Date(a.release)-new Date(b.release)):0);
-    const rem=getTeamRemainder(exec.name);
-    return(<div key={exec.name} style={{marginBottom:6}}>
-      <button onClick={()=>toggle(exec.name)} style={{width:"100%",display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,padding:"12px 14px",background:"#111119",border:"1px solid #222233",borderRadius:isOpen?"10px 10px 0 0":10,cursor:"pointer",color:"#e8e8f0",textAlign:"left"}}>
-        <div style={{flex:1,minWidth:0,display:"flex",flexDirection:"column",gap:3}}>
-          <div style={{display:"flex",alignItems:"center",gap:8,minWidth:0}}>
-            <div style={{width:10,height:10,borderRadius:"50%",background:EXEC_COLORS[exec.name],flexShrink:0}}/>
-            <span style={{fontWeight:800,fontSize:14,flexShrink:0}}>{DISPLAY[exec.name]}</span>
-            <span style={{fontSize:11,color:"#6a6a7e",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",minWidth:0}}>{studioNames[exec.name]}</span>
-          </div>
-          <div style={{fontFamily:"monospace",fontSize:11,color:"#6a6a7e"}}>${exec.totalSpent}M spent &bull; ${exec.remaining}M left</div>
-        </div>
-        <div style={{fontSize:14,color:"#6a6a7e",flexShrink:0}}>{isOpen?"▲":"▼"}</div>
-      </button>
-      {isOpen&&(<div style={{background:"#0e0e16",border:"1px solid #222233",borderTop:"none",borderRadius:"0 0 10px 10px"}}>
-        <div style={{display:"flex",gap:8,padding:"8px 14px",borderBottom:"1px solid #222233",alignItems:"center"}}>
-          <span style={{fontSize:10,color:"#6a6a7e",textTransform:"uppercase",letterSpacing:"0.08em"}}>Sort:</span>
-          {[["bid","Price"],["release","Date"]].map(([k,l])=>(<button key={k} onClick={()=>setSortMode(s=>({...s,[exec.name]:k}))} style={{fontSize:10,padding:"3px 8px",borderRadius:4,border:`1px solid ${mode===k?"#d4a843":"#2a2a3a"}`,background:mode===k?"#d4a84320":"transparent",color:mode===k?"#d4a843":"#6a6a7e",cursor:"pointer",fontWeight:600}}>{l}</button>))}
-        </div>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 50px 50px 80px",gap:4,padding:"6px 14px",fontSize:9,color:"#6a6a7e",textTransform:"uppercase",letterSpacing:"0.08em",borderBottom:"1px solid #1a1a28"}}><div>Film</div><div style={{textAlign:"right"}}>Bid</div><div style={{textAlign:"center"}}>Date</div><div style={{textAlign:"right"}}>Dom. BO</div></div>
-        {films.map((f,i)=>{const roi=f.bo>0?((f.bo/(f.bid*1e6))*100).toFixed(0):null;const rd=f.release?new Date(f.release):null;const rs=rd?`${rd.getMonth()+1}/${rd.getDate()}`:"—";return(
-          <div key={i} style={{display:"grid",gridTemplateColumns:"1fr 50px 50px 80px",gap:4,padding:"7px 14px",fontSize:13,alignItems:"center",borderBottom:"1px solid #14141e"}}>
-            <div><span style={{fontWeight:600}}>{f.title}</span>
-              {f.status==="released"&&<span style={{fontSize:8,background:"rgba(52,211,153,0.12)",color:"#34d399",padding:"1px 5px",borderRadius:3,marginLeft:5}}>✓</span>}
-              {f.status==="upcoming"&&<span style={{fontSize:7,background:"rgba(96,165,250,0.08)",color:"#60a5fa",padding:"1px 4px",borderRadius:3,marginLeft:5}}>COMING SOON</span>}
-              {f.status==="tba"&&<span style={{fontSize:8,background:"rgba(100,100,120,0.12)",color:"#6a6a7e",padding:"1px 5px",borderRadius:3,marginLeft:5}}>TBA</span>}
-              {roi&&<span style={{fontSize:9,color:Number(roi)>=100?"#34d399":"#f87171",marginLeft:4,fontFamily:"monospace"}}>{roi}%</span>}
-            </div>
-            <div style={{fontFamily:"monospace",fontSize:11,color:"#6a6a7e",textAlign:"right"}}>${f.bid}M</div>
-            <div style={{fontFamily:"monospace",fontSize:10,color:"#4a4a5e",textAlign:"center"}}>{rs}</div>
-            <div style={{fontFamily:"monospace",fontSize:11,color:f.bo>0?"#34d399":"#3a3a4e",textAlign:"right"}}>{f.bo>0?fmt(f.bo):"—"}</div>
-          </div>)})}
-        {rem&&rem.remaining>0&&(<div style={{display:"grid",gridTemplateColumns:"1fr 50px 50px 80px",gap:4,padding:"7px 14px",fontSize:13,borderTop:"1px solid #222233"}}><div style={{color:"#6a6a7e",fontStyle:"italic"}}>{LEAGUE_CONTEXT?.acquisitions_enabled?"Acquisitions Budget":"Unspent Budget"}</div><div style={{fontFamily:"monospace",fontSize:11,color:"#6a6a7e",textAlign:"right"}}>${rem.remaining}M</div><div/><div style={{fontFamily:"monospace",fontSize:11,color:"#3a3a4e",textAlign:"right"}}>—</div></div>)}
-      </div>)}
-    </div>)})}</div>);
-}
-
 // ─── CALENDAR ──────────────────
 function CalendarView({films}){
   const[mode,setMode]=useState("list");
@@ -3034,7 +2648,7 @@ function HeatmapGrid({heatmap,monthOrder,heatLabels,teams}){
 }
 
 // ─── TRENDS ──────────────────
-function TrendsTab({films,data,studioNames,weeklyBO,weeklyPOI,leagueCtx}){
+function TrendsTab({films,data,weeklyBO,weeklyPOI,leagueCtx}){
   const teams=Object.keys(EXEC_COLORS);
   // True calendar-week box office per team, from daily_bo via the
   // weekly_box_office_by_team() RPC (migration 052). Preferred over
@@ -3044,7 +2658,7 @@ function TrendsTab({films,data,studioNames,weeklyBO,weeklyPOI,leagueCtx}){
   // yet, or no daily data) -- falls back to the snapshot deltas below.
   const[dailyWeekly,setDailyWeekly]=useState(null);
   useEffect(()=>{
-    if(IS_LEGACY||!LEAGUE_UUID) return;
+    if(!LEAGUE_UUID) return;
     let cancelled=false;
     const session=getSession();
     fetch(`${SUPABASE_URL}/rest/v1/rpc/weekly_box_office_by_team`,{
@@ -3539,8 +3153,7 @@ function AwardsTab({films,leagueCtx}){
   // films released March 2026 to March 2027 -- competes at the ceremony
   // held right after that window closes, i.e. "2027"). Was hardcoded to
   // 2027 before, which only happened to be correct for the original 2026
-  // league; falls back to that same 2027 for IS_LEGACY/missing leagueCtx so
-  // that view's behavior is unchanged.
+  // league; falls back to that same 2027 when there's no leagueCtx.
   const oddsSeason=leagueCtx?.season?String(Number(leagueCtx.season)+1):"2027";
 
   useEffect(()=>{
@@ -4006,7 +3619,7 @@ function Rules({leagueCtx}){
   ];
   return(
     <div style={{display:"flex",flexDirection:"column",gap:12}}>
-      {!IS_LEGACY&&l.is_public&&l.share_token&&
+      {l.is_public&&l.share_token&&
         <div style={{background:"#111119",border:"1px solid #222233",borderRadius:10,padding:"16px 14px"}}>
           <div style={{fontSize:12,fontWeight:700,color:"#d4a843",letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:10}}>Share This League</div>
           <div style={{fontSize:12,color:"#6a6a7e",marginBottom:12}}>Send this link to friends — anyone can view standings, calendar, and rules with no account needed.</div>
@@ -6048,7 +5661,7 @@ function SettingsPanel({membership, leagueCtx, onClose}){
 (async function boot(){
   // The original single-league page (/league with no ?id=) read a Google Sheet that
   // is no longer maintained. Send anyone arriving there to their leagues instead.
-  if (IS_LEGACY) { window.location.replace('/dashboard'); return; }
+  if (!LEAGUE_UUID) { window.location.replace('/dashboard'); return; }
   {
     const valid = await ensureValidSession();
     if (valid) {
