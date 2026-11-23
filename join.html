@@ -150,6 +150,11 @@ function show(id) {
   });
 }
 
+// League names are chosen by league creators, so anything put into innerHTML must be escaped.
+function escHtml(str) {
+  return String(str == null ? '' : str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
 async function sbGet(path) {
   const session = getSession();
   const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
@@ -217,7 +222,7 @@ function renderJoinState(league, session) {
   joinDiv.innerHTML = `
     <div class="league-badge">You're Invited</div>
     <div class="title">JOIN THE LEAGUE</div>
-    <div class="subtitle">You've been invited to join <span class="league-name">${league.name}</span>. Sign in or create an account to accept.</div>
+    <div class="subtitle">You've been invited to join <span class="league-name">${escHtml(league.name)}</span>. Sign in or create an account to accept.</div>
     <div class="alert alert-error" id="joinError"></div>
     <div class="tabs">
       <button class="tab active" id="tabSignin" onclick="switchTab('signin')">Sign in</button>
@@ -310,7 +315,7 @@ async function handleSignup(leagueId) {
     document.getElementById('stateJoin').innerHTML = `
       <div class="league-badge">Check Your Email</div>
       <div class="title">ALMOST THERE</div>
-      <div class="subtitle">We sent a confirmation to <strong>${email}</strong>. Click the link in your email, then come back here to join the league.</div>
+      <div class="subtitle">We sent a confirmation to <strong>${escHtml(email)}</strong>. Click the link in your email, then come back here to join the league.</div>
     `;
   }
 }
