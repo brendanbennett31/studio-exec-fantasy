@@ -100,8 +100,34 @@ function boPatchFilm(id, payload) {
   return r.getResponseCode();
 }
 
+// ---- single-run guard ----------------------------------------------------------
+// A scheduled job should never run twice at once or back-to-back (stray duplicate triggers,
+// a manual run during a scheduled one). The lock and the "last started" stamp are script-wide,
+// so they hold even when the duplicate trigger belongs to a different Google account.
+// Returns the held lock (release it in a finally) or null when this run should be skipped.
+var BO_MIN_GAP_MINUTES = 20;
+function boClaimRun(stampKey, minGapMinutes) {
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(0)) { Logger.log("Skipped: another run is already in progress."); return null; }
+  var props = PropertiesService.getScriptProperties();
+  var last = Number(props.getProperty(stampKey) || 0);
+  if (Date.now() - last < minGapMinutes * 60000) {
+    Logger.log("Skipped: ran " + Math.round((Date.now() - last) / 60000) + " min ago (minimum gap " + minGapMinutes + " min).");
+    lock.releaseLock();
+    return null;
+  }
+  props.setProperty(stampKey, String(Date.now()));
+  return lock;
+}
+
 // ---- total + opening weekend -------------------------------------------------
 function scrapeUniverseBoxOffice() {
+  var lock = boClaimRun("BO_LAST_START", BO_MIN_GAP_MINUTES);
+  if (!lock) return;
+  try { boScrapeUniverse(); } finally { lock.releaseLock(); }
+}
+
+function boScrapeUniverse() {
   var started = Date.now(), today = boToday();
   Logger.log("=== UNIVERSE BOX OFFICE (" + today + ") ===");
   var films = ufGetAll("universe_films?imdb_id=not.is.null&release_date=lte." + today
