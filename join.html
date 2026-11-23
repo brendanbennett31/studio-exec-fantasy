@@ -187,13 +187,21 @@ async function joinLeague(league, session) {
     return;
   }
 
-  // Add them as a member
-  const res = await sbPost('league_members', {
-    league_id: league.id,
-    user_id: session.user.id,
-    role: 'player',
-    team_name: session.user.user_metadata?.display_name || session.user.email?.split('@')[0] || 'Player'
-  }, session.access_token);
+  // Join through the server-side invite check (migration 066). If that migration hasn't been
+  // run yet the function doesn't exist (404) and we fall back to the old direct insert.
+  let res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/join_league`, {
+    method: 'POST',
+    headers: { 'apikey': SUPABASE_ANON_KEY, 'Authorization': `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ p_invite_code: inviteCode })
+  });
+  if (res.status === 404) {
+    res = await sbPost('league_members', {
+      league_id: league.id,
+      user_id: session.user.id,
+      role: 'player',
+      team_name: session.user.user_metadata?.display_name || session.user.email?.split('@')[0] || 'Player'
+    }, session.access_token);
+  }
 
   if (res.ok || res.status === 409) {
     document.getElementById('successLeagueName').textContent = league.name;

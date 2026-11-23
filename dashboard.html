@@ -900,40 +900,61 @@ async function handleJoinLeague() {
 
   setLoading('joinBtn', true, 'Join League');
 
-  // Find league by invite code
-  const { ok, data } = await sbFetch(`/rest/v1/leagues?invite_code=eq.${code}&select=*`);
-  if (!ok || !data?.length) {
+  // Join through the server-side invite check (migration 066). If that migration hasn't been
+  // run yet the function doesn't exist (404) and we fall back to the old direct lookup/insert.
+  let league = null, joinOk = false;
+  const rpc = await sbFetch('/rest/v1/rpc/join_league', { method: 'POST', body: JSON.stringify({ p_invite_code: code }) });
+  if (rpc.ok) {
+    league = { id: rpc.data.league_id, name: rpc.data.name };
+    if (!rpc.data.joined) {
+      setLoading('joinBtn', false, 'Join League');
+      errEl.textContent = "You're already in this league.";
+      errEl.classList.add('show');
+      return;
+    }
+    joinOk = true;
+  } else if (rpc.status !== 404) {
     setLoading('joinBtn', false, 'Join League');
-    errEl.textContent = 'Invite code not found. Double-check and try again.';
+    errEl.textContent = rpc.data?.message || 'Invite code not found. Double-check and try again.';
     errEl.classList.add('show');
     return;
+  } else {
+    // Find league by invite code
+    const { ok, data } = await sbFetch(`/rest/v1/leagues?invite_code=eq.${code}&select=*`);
+    if (!ok || !data?.length) {
+      setLoading('joinBtn', false, 'Join League');
+      errEl.textContent = 'Invite code not found. Double-check and try again.';
+      errEl.classList.add('show');
+      return;
+    }
+
+    league = data[0];
+    const userId = currentSession.user?.id;
+
+    // Check if already a member
+    const { data: existing } = await sbFetch(
+      `/rest/v1/league_members?league_id=eq.${league.id}&user_id=eq.${userId}&select=id`
+    );
+    if (existing?.length) {
+      setLoading('joinBtn', false, 'Join League');
+      errEl.textContent = "You're already in this league.";
+      errEl.classList.add('show');
+      return;
+    }
+
+    // Add as player
+    const joined = await sbFetch('/rest/v1/league_members', {
+      method: 'POST',
+      headers: { 'Prefer': 'return=minimal' },
+      body: JSON.stringify({
+        league_id: league.id,
+        user_id: userId,
+        role: 'player',
+        team_name: currentProfile.display_name || 'Player'
+      })
+    });
+    joinOk = joined.ok;
   }
-
-  const league = data[0];
-  const userId = currentSession.user?.id;
-
-  // Check if already a member
-  const { data: existing } = await sbFetch(
-    `/rest/v1/league_members?league_id=eq.${league.id}&user_id=eq.${userId}&select=id`
-  );
-  if (existing?.length) {
-    setLoading('joinBtn', false, 'Join League');
-    errEl.textContent = "You're already in this league.";
-    errEl.classList.add('show');
-    return;
-  }
-
-  // Add as player
-  const { ok: joinOk } = await sbFetch('/rest/v1/league_members', {
-    method: 'POST',
-    headers: { 'Prefer': 'return=minimal' },
-    body: JSON.stringify({
-      league_id: league.id,
-      user_id: userId,
-      role: 'player',
-      team_name: currentProfile.display_name || 'Player'
-    })
-  });
 
   setLoading('joinBtn', false, 'Join League');
 
