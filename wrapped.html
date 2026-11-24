@@ -89,6 +89,45 @@ details.studio .body{padding:0 16px 14px}
 .msg{padding:80px 16px;text-align:center;color:var(--ink2)}
 .spin{width:26px;height:26px;border:2.5px solid var(--line);border-top-color:var(--gold);border-radius:50%;animation:s .7s linear infinite;margin:0 auto 14px}
 @keyframes s{to{transform:rotate(360deg)}}
+.pod{position:relative;overflow:hidden}
+.pod.first{border-color:rgba(251,191,36,.45);box-shadow:0 10px 30px -12px rgba(251,191,36,.45)}
+.pod.first .v{color:var(--gold)}
+tr.champ td{background:rgba(251,191,36,.05)}
+.sup{transition:border-color .2s}
+.sup:hover{border-color:#3d3346}
+
+/* ── Reveal choreography ──
+   Everything below only applies once the script adds .anim to <html>, which it
+   skips for visitors whose device asks for less motion -- they get the finished
+   page straight away. Hero plays on load; sections reveal as they scroll in. */
+:root{--ease:cubic-bezier(.2,.75,.2,1)}
+.anim .hero::before{animation:glowIn 1.8s ease both}
+.anim .hero .eyebrow{animation:fadeUp .7s var(--ease) .1s both}
+.anim .trophy{animation:pop .9s cubic-bezier(.3,1.5,.5,1) .3s both}
+.anim .hero h1{animation:focusIn 1.1s var(--ease) .75s both}
+.anim .hero .sub{animation:fadeUp .7s var(--ease) 1.15s both}
+.anim .pod{animation:rise .7s var(--ease) both}
+.anim .pod:nth-child(3){animation-delay:1.35s}
+.anim .pod:nth-child(2){animation-delay:1.55s}
+.anim .pod:nth-child(1){animation-delay:1.8s}
+.anim .pod.first::after{content:"";position:absolute;inset:0;pointer-events:none;background:linear-gradient(105deg,transparent 30%,rgba(253,230,138,.22) 50%,transparent 70%);transform:translateX(-110%);animation:sweep 1.2s ease-in-out 2.5s both}
+.anim .hero .note{animation:fadeUp .6s var(--ease) 2.1s both}
+.anim .rv{opacity:0;transform:translateY(20px);transition:opacity .8s var(--ease),transform .8s var(--ease);transition-delay:var(--d,0ms)}
+.anim .rv.in{opacity:1;transform:none}
+.anim .stg>*{opacity:0;transform:translateY(14px);transition:opacity .6s var(--ease),transform .6s var(--ease);transition-delay:calc(var(--d,0ms) + var(--i,0) * 70ms)}
+.anim .stg.in>*{opacity:1;transform:none}
+.anim tbody.stg>*{transform:none} /* rows only fade: moving them would flash a scrollbar on the scrolling tables */
+.anim .bars .fill{transition:width 1.1s var(--ease);transition-delay:calc(var(--d,0ms) + 250ms + var(--i,0) * 90ms)}
+.anim .race-ends{opacity:0;transition:opacity .5s ease}
+.anim .race-ends.on{opacity:1}
+.anim details.studio[open] .body{animation:fadeUp .35s var(--ease)}
+@keyframes fadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+@keyframes rise{from{opacity:0;transform:translateY(22px) scale(.97)}to{opacity:1;transform:none}}
+@keyframes pop{0%{opacity:0;transform:scale(.2) rotate(-14deg)}55%{opacity:1;transform:scale(1.18) rotate(5deg)}80%{transform:scale(.96) rotate(-1deg)}100%{opacity:1;transform:none}}
+@keyframes focusIn{from{opacity:0;filter:blur(12px);transform:scale(.94)}to{opacity:1;filter:blur(0);transform:none}}
+@keyframes glowIn{from{opacity:0}to{opacity:1}}
+@keyframes sweep{to{transform:translateX(110%)}}
+@media print{.anim .rv,.anim .stg>*{opacity:1!important;transform:none!important}}
 @media (max-width:560px){
   .tiles{grid-template-columns:repeat(2,minmax(0,1fr))}
   .supers{grid-template-columns:minmax(0,1fr)}
@@ -160,6 +199,84 @@ async function rpc(name, args) {
 }
 const soft = p => p.catch(() => null); // optional sections stay hidden if not readable (e.g. public viewers)
 
+// ── Reveal choreography (CSS under .anim) ──
+// Off for visitors whose device asks for less motion, and for browsers without
+// IntersectionObserver: they get the finished page with no hidden content.
+const ANIM = !(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches) && 'IntersectionObserver' in window;
+if (ANIM) document.documentElement.classList.add('anim');
+const FMTS = { bo: n => fmt(n), m: n => fmtM(n), int: n => String(Math.round(n)) };
+
+// Rolls a number up from zero; the element's text already holds the final value.
+function countUp(el, delay, ms = 1300) {
+  const n = +el.dataset.n, f = FMTS[el.dataset.f] || FMTS.bo;
+  if (!isFinite(n) || n <= 0) return;
+  el.textContent = f(0);
+  setTimeout(() => {
+    const t0 = performance.now();
+    const step = t => { const p = Math.min(1, (t - t0) / ms), e = 1 - Math.pow(1 - p, 3);
+      el.textContent = f(n * e); if (p < 1) requestAnimationFrame(step); else el.textContent = f(n); };
+    requestAnimationFrame(step);
+  }, delay);
+}
+
+// One short burst of gold confetti from the trophy, then the canvas removes itself.
+function confetti(host, extra) {
+  if (!host) return;
+  const w = host.clientWidth, h = Math.max(360, host.clientHeight), dpr = Math.min(2, window.devicePixelRatio || 1);
+  const c = document.createElement('canvas');
+  c.setAttribute('aria-hidden', 'true');
+  c.style.cssText = `position:absolute;left:0;top:0;width:${w}px;height:${h}px;pointer-events:none;z-index:1`;
+  c.width = w * dpr; c.height = h * dpr; host.appendChild(c);
+  const ctx = c.getContext('2d'); ctx.scale(dpr, dpr);
+  const cols = ['#fbbf24', '#fde68a', '#d4a843', '#f2ead8', '#f59e0b'].concat(extra ? [extra, extra] : []);
+  const hr = host.getBoundingClientRect(), tr = host.querySelector('.trophy'), r = tr ? tr.getBoundingClientRect() : hr;
+  const ox = w / 2, oy = Math.max(20, r.top - hr.top + Math.min(r.height, 44) / 2);
+  const ps = Array.from({ length: w < 500 ? 60 : 90 }, () => {
+    const a = -Math.PI / 2 + (Math.random() - .5) * Math.PI * 1.15, v = 5 + Math.random() * 7.5;
+    return { x: ox, y: oy, vx: Math.cos(a) * v, vy: Math.sin(a) * v, s: 4 + Math.random() * 5, r: Math.random() * 6,
+      vr: (Math.random() - .5) * .3, c: cols[Math.random() * cols.length | 0], rect: Math.random() < .6 };
+  });
+  const t0 = performance.now(), life = 2600; let last = t0;
+  const step = t => {
+    const k = (t - t0) / life, dt = Math.min(3, (t - last) / 16.67); last = t;
+    ctx.clearRect(0, 0, w, h); ctx.globalAlpha = Math.max(0, 1 - k * k);
+    ps.forEach(p => {
+      p.vy += .18 * dt; p.vx *= Math.pow(.985, dt); p.vy *= Math.pow(.985, dt);
+      p.x += p.vx * dt; p.y += p.vy * dt; p.r += p.vr * dt;
+      ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.r); ctx.fillStyle = p.c;
+      if (p.rect) ctx.fillRect(-p.s / 2, -p.s / 4, p.s, p.s / 2); else { ctx.beginPath(); ctx.arc(0, 0, p.s / 3, 0, 7); ctx.fill(); }
+      ctx.restore();
+    });
+    if (k < 1) requestAnimationFrame(step); else c.remove();
+  };
+  requestAnimationFrame(step);
+}
+
+// Hero on load, then each section as it scrolls into view. Nothing below the
+// hero starts before the hero has finished, so the opening reads in order.
+function choreograph(champColor) {
+  if (!ANIM) return;
+  // opened in a background tab: CSS animations wait for the tab to be shown, so the timers must too
+  if (document.hidden) { document.addEventListener('visibilitychange', () => choreograph(champColor), { once: true }); return; }
+  const heroEnd = performance.now() + 2000;
+  // podium values roll up as each card lands (1st place lands last)
+  document.querySelectorAll('.hero .pod .v[data-n]').forEach((el, i) => countUp(el, [1950, 1700, 1500][i] ?? 1500, 1100));
+  setTimeout(() => confetti(document.querySelector('.hero'), champColor), 950);
+  document.querySelectorAll('.stg').forEach(g => [...g.children].forEach((c, i) => c.style.setProperty('--i', Math.min(i, 10))));
+  document.querySelectorAll('.bars .fill').forEach((c, i) => c.style.setProperty('--i', i));
+  const io = new IntersectionObserver(entries => entries.forEach(en => {
+    if (!en.isIntersecting) return;
+    const el = en.target; io.unobserve(el);
+    const wait = Math.round(Math.max(0, heroEnd - performance.now()));
+    el.style.setProperty('--d', wait + 'ms');
+    el.classList.add('in');
+    if (el.classList.contains('stg')) [...el.children].forEach((c, i) => c.querySelectorAll('[data-n]').forEach(v => countUp(v, wait + Math.min(i, 10) * 70 + 150)));
+    el.querySelectorAll('.fill[data-w]').forEach(f => { f.style.width = f.dataset.w + '%'; });
+    el.dispatchEvent(new CustomEvent('reveal', { detail: { wait } }));
+  }), { rootMargin: '0px 0px -10% 0px' });
+  document.querySelectorAll('.rv, .stg, #race').forEach(el => io.observe(el));
+}
+
 function show(html) { document.getElementById('app').innerHTML = html; }
 
 async function main() {
@@ -226,17 +343,17 @@ function render(league, results, x) {
     <div class="trophy" aria-hidden="true" style="margin-top:18px">🏆</div>
     <h1 class="serif">${esc(champs.map(t => t.team).join(' & '))}</h1>
     <div class="sub">${champs.length > 1 ? 'share the title' : `${esc(champ.player || 'The champion')} takes the season`} with <b>${fmt(champ.total)}</b>${runner && champs.length === 1 ? ` — ${fmt(champ.total - runner.total)} ahead of ${esc(runner.team)}` : ''}</div>
-    <div class="podium">${st.slice(0, 3).map(t => `<div class="pod"><div class="p">${t.rank === 1 ? '1st' : t.rank === 2 ? '2nd' : t.rank === 3 ? '3rd' : t.rank + 'th'}</div><div class="n">${swatch(t.team)}${esc(t.team)}</div><div class="v">${fmt(t.total)}</div></div>`).join('')}</div>
+    <div class="podium">${st.slice(0, 3).map(t => `<div class="pod${t.rank === 1 ? ' first' : ''}"><div class="p">${t.rank === 1 ? '1st' : t.rank === 2 ? '2nd' : t.rank === 3 ? '3rd' : t.rank + 'th'}</div><div class="n">${swatch(t.team)}${esc(t.team)}</div><div class="v" data-n="${t.total}" data-f="bo">${fmt(t.total)}</div></div>`).join('')}</div>
     ${last && st.length > 3 ? `<div class="note" style="position:relative">Sacko: <b style="color:var(--bad)">${esc(last.team)}</b></div>` : ''}</div>`;
   // ── tiles ──
-  h += `<div class="tiles">
-    <div class="tile"><div class="v">${fmt(totalBO)}</div><div class="l">League box office</div></div>
-    <div class="tile"><div class="v">${real.length}</div><div class="l">Films owned</div></div>
-    <div class="tile"><div class="v">${totalNoms}</div><div class="l">Oscar noms</div></div>
-    <div class="tile"><div class="v">${fmtM(totalSpent)}</div><div class="l">Spent on films</div></div></div>`;
+  h += `<div class="tiles stg">
+    <div class="tile"><div class="v" data-n="${totalBO}" data-f="bo">${fmt(totalBO)}</div><div class="l">League box office</div></div>
+    <div class="tile"><div class="v" data-n="${real.length}" data-f="int">${real.length}</div><div class="l">Films owned</div></div>
+    <div class="tile"><div class="v" data-n="${totalNoms}" data-f="int">${totalNoms}</div><div class="l">Oscar noms</div></div>
+    <div class="tile"><div class="v" data-n="${totalSpent}" data-f="m">${fmtM(totalSpent)}</div><div class="l">Spent on films</div></div></div>`;
   // ── final standings ──
-  h += `<section><h2>Final standings</h2><div class="card scroll"><table><thead><tr><th>#</th><th>Studio</th><th>Box office</th><th>Oscars</th><th class="hide-sm">Unspent</th><th>Total</th><th class="hide-sm">ROI</th></tr></thead><tbody>
-    ${st.map(t => `<tr><td class="rank">${t.rank}</td><td class="team"><span class="tn">${swatch(t.team)}<b>${esc(t.team)}</b></span><div class="pl">${esc(t.player || '')}</div></td>
+  h += `<section class="rv"><h2>Final standings</h2><div class="card scroll"><table><thead><tr><th>#</th><th>Studio</th><th>Box office</th><th>Oscars</th><th class="hide-sm">Unspent</th><th>Total</th><th class="hide-sm">ROI</th></tr></thead><tbody class="stg">
+    ${st.map(t => `<tr${t.rank === 1 ? ' class="champ"' : ''}><td class="rank">${t.rank}</td><td class="team"><span class="tn">${swatch(t.team)}<b>${esc(t.team)}</b></span><div class="pl">${esc(t.player || '')}</div></td>
       <td>${fmt(t.bo)}</td><td style="color:${t.oscar_m > 0 ? 'var(--gold)' : 'var(--muted)'}">${t.oscar_m > 0 ? '+' + fmtM(t.oscar_m) : '—'}</td>
       <td class="hide-sm">${t.remaining_m > 0 ? fmtM(t.remaining_m) : '—'}</td><td><b>${fmt(t.total)}</b></td><td class="hide-sm">${t.spent > 0 ? pct(t.bo / (t.spent * 1e6)) : '—'}</td></tr>`).join('')}
     </tbody></table><div class="note">Total = box office + Oscar bonuses${st.some(t => t.remaining_m > 0) ? ' + unspent Acquisitions budget' : ''}. ROI = box office ÷ money spent on films.</div></div></section>`;
@@ -247,10 +364,10 @@ function render(league, results, x) {
   weeks.forEach(w => { let best = null, bv = 0; Object.entries(w.v).forEach(([t, v]) => { if (v > bv) { bv = v; best = t; } });
     if (best) { leaderWeeks[best] = (leaderWeeks[best] || 0) + 1; if (prev && best !== prev) changes++; prev = best; } });
   if (weeks.length > 1) {
-    h += `<section><h2>The box office race</h2><div class="card"><div class="chart" id="race"></div><div class="legend">${order.filter(t => st.some(z => z.team === t)).map(t => `<span>${swatch(t)}${esc(t)}</span>`).join('')}</div>
+    h += `<section class="rv"><h2>The box office race</h2><div class="card"><div class="chart" id="race"></div><div class="legend">${order.filter(t => st.some(z => z.team === t)).map(t => `<span>${swatch(t)}${esc(t)}</span>`).join('')}</div>
       <div class="note">Weekly box office by studio (Oscar bonuses landed at the end). ${changes ? `The lead changed hands <b>${changes}</b> time${changes === 1 ? '' : 's'}.` : 'One studio led wire to wire.'}</div></div></section>`;
     const lw = Object.entries(leaderWeeks).sort((a, b) => b[1] - a[1]); const maxW = lw.length ? lw[0][1] : 1;
-    h += `<section><h2>Weeks at #1</h2><div class="card bars">${lw.map(([t, n]) => `<div class="row"><span class="nm">${swatch(t)}${esc(t)}</span><div class="track"><div class="fill" style="width:${(n / maxW) * 100}%;background:${col[t] || '#888'}"></div></div><span class="num">${n}</span></div>`).join('')}</div></section>`;
+    h += `<section class="rv"><h2>Weeks at #1</h2><div class="card bars">${lw.map(([t, n]) => `<div class="row"><span class="nm">${swatch(t)}${esc(t)}</span><div class="track"><div class="fill" data-w="${(n / maxW) * 100}" style="width:${ANIM ? 0 : (n / maxW) * 100}%;background:${col[t] || '#888'}"></div></div><span class="num">${n}</span></div>`).join('')}</div></section>`;
   }
   // ── superlatives ──
   const sups = [];
@@ -287,26 +404,47 @@ function render(league, results, x) {
     sups.push(['Weekend oracle', o.team_name, `Earned <b>+${fmtM(o.weekend_pick_credits)}</b> from Weekend Picks.`]);
   }
   if (x.refunds && x.refunds.length) sups.push(['Second thoughts', `${x.refunds.length} refund${x.refunds.length === 1 ? '' : 's'}`, `Studios sent back ${x.refunds.length} film${x.refunds.length === 1 ? '' : 's'} for ${fmtM(x.refunds.reduce((a, r) => a + +r.credit_amount, 0))} in credit.`]);
-  if (sups.length) h += `<section><h2>Season superlatives</h2><div class="supers">${sups.map(([k, t, d]) => `<div class="sup"><div class="k">${esc(k)}</div><div class="t">${esc(t)}</div><div class="d">${d}</div></div>`).join('')}</div></section>`;
+  if (sups.length) h += `<section class="rv"><h2>Season superlatives</h2><div class="supers stg">${sups.map(([k, t, d]) => `<div class="sup"><div class="k">${esc(k)}</div><div class="t">${esc(t)}</div><div class="d">${d}</div></div>`).join('')}</div></section>`;
   // ── studio by studio ──
-  h += `<section><h2>Studio by studio</h2><div class="studios">${st.map(t => {
+  h += `<section class="rv"><h2>Studio by studio</h2><div class="studios stg">${st.map(t => {
     const fs = (t.films || []).map(f => ({ ...f, bo: +f.bo, bid: +f.bid }));
     const best = top(fs.filter(f => f.bid > 0 && f.bo > 0), f => f.bo / f.bid);
     return `<details class="studio"${t.rank === 1 ? ' open' : ''}><summary><span style="color:var(--muted);font-family:monospace">${t.rank}</span><span class="nm">${swatch(t.team)}${esc(t.team)} <span class="pl">${esc(t.player || '')}</span></span><span class="tot">${fmt(t.total)}</span></summary>
       <div class="body scroll"><table><thead><tr><th>Film</th><th></th><th>Bid</th><th>Box office</th><th class="hide-sm">Oscars</th></tr></thead><tbody>
       ${fs.map(f => `<tr><td class="team" colspan="2">${esc(f.title)}${f.voided ? ' <span class="pl">(voided)</span>' : ''}${f.source === 'acquisition' ? ' <span class="pl">· acq.</span>' : ''}${best && best.pick_id === f.pick_id ? ' <span style="color:var(--good);font-size:11px">★ best value</span>' : ''}</td><td>${fmtM(f.bid)}</td><td>${fmt(f.bo)}</td><td class="hide-sm" style="color:${+f.oscar_m > 0 ? 'var(--gold)' : 'var(--muted)'}">${+f.noms > 0 ? `${f.noms}n${+f.wins + (f.bp_win ? 1 : 0) ? ' ' + (+f.wins + (f.bp_win ? 1 : 0)) + 'w' : ''} +${fmtM(f.oscar_m)}` : '—'}</td></tr>`).join('')}
       </tbody></table></div></details>`; }).join('')}</div></section>`;
-  h += `<section class="center"><div class="note">Final as of ${new Date(results.finalized_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}.</div><br>
+  h += `<section class="center rv"><div class="note">Final as of ${new Date(results.finalized_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}.</div><br>
     <a class="btn" href="${esc(document.getElementById('back').href)}">Back to the league</a></section>`;
   show(h);
   if (weeks.length > 1) {
-    const draw = () => drawRace(document.getElementById('race'), weeks, order.filter(t => st.some(z => z.team === t)), col, dashed);
+    // with motion on, the lines start hidden and draw in left to right when the chart scrolls into view
+    let grown = !ANIM;
+    const race = document.getElementById('race');
+    const draw = () => drawRace(race, weeks, order.filter(t => st.some(z => z.team === t)), col, dashed, !grown);
     draw(); let rt; addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(draw, 150); });
+    race.addEventListener('reveal', e => { grown = true; growRace(race, e.detail.wait + 300); });
   }
+  choreograph(champ && col[champ.team]);
+}
+
+// Sweeps the race chart's clip from the y-axis to the right edge, then shows the end dots.
+function growRace(el, delay, ms = 1900) {
+  const rect = el.querySelector('#raceclip rect'), svg = el.querySelector('svg');
+  if (!rect || !svg) return;
+  const from = +rect.getAttribute('width'), to = svg.viewBox.baseVal.width;
+  setTimeout(() => {
+    const t0 = performance.now();
+    const step = t => {
+      const p = Math.min(1, (t - t0) / ms), e = p < .5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2;
+      rect.setAttribute('width', from + (to - from) * e);
+      if (p < 1) requestAnimationFrame(step); else { const ends = el.querySelector('.race-ends'); if (ends) ends.classList.add('on'); }
+    };
+    requestAnimationFrame(step);
+  }, delay);
 }
 
 // Cumulative box office lines with a crosshair + tooltip (mouse and touch).
-function drawRace(el, weeks, teams, col, dashed) {
+function drawRace(el, weeks, teams, col, dashed, hidden) {
   // drawn at the container's real pixel width so axis text stays 11px on phones
   const W = Math.max(300, Math.round(el.clientWidth || 800)), H = Math.round(Math.min(320, Math.max(220, W * 0.55))), pl = 52, pr = 10, pt = 12, pb = 26;
   const max = Math.max(1, ...weeks.flatMap(w => teams.map(t => w.v[t] || 0)));
@@ -318,8 +456,14 @@ function drawRace(el, weeks, teams, col, dashed) {
     s += `<line x1="${pl}" x2="${W - pr}" y1="${y}" y2="${y}" stroke="#2a2230" stroke-width="1"/><text x="${pl - 8}" y="${y + 4}" fill="#8a7f72" font-size="11" text-anchor="end" font-family="monospace">${fmt(v)}</text>`; }
   const step = Math.max(1, Math.ceil(weeks.length / Math.max(3, Math.floor(W / 110))));
   weeks.forEach((w, i) => { if (i % step === 0 || i === weeks.length - 1) s += `<text x="${X(i)}" y="${H - 6}" fill="#8a7f72" font-size="11" text-anchor="middle" font-family="monospace">${esc(w.label)}</text>`; });
+  // lines sit under a clip so they can be drawn in left to right (growRace); `hidden` starts it closed at the y-axis
+  s += `<defs><clipPath id="raceclip"><rect x="0" y="0" width="${hidden ? pl : W}" height="${H}"/></clipPath></defs><g clip-path="url(#raceclip)">`;
   teams.forEach(t => { const d = weeks.map((w, i) => `${i ? 'L' : 'M'}${X(i).toFixed(1)},${Y(w.v[t] || 0).toFixed(1)}`).join('');
     s += `<path d="${d}" fill="none" stroke="${col[t]}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"${dashed[t] ? ' stroke-dasharray="7 5"' : ''}/>`; });
+  s += `</g>`;
+  // where each studio finished
+  const lastW = weeks[weeks.length - 1];
+  s += `<g class="race-ends${hidden ? '' : ' on'}">${teams.map(t => `<circle cx="${X(weeks.length - 1)}" cy="${Y(lastW.v[t] || 0)}" r="4" fill="${col[t]}" stroke="#15101a" stroke-width="2"/>`).join('')}</g>`;
   s += `<line id="xh" x1="0" x2="0" y1="${pt}" y2="${H - pb}" stroke="#fbbf24" stroke-opacity=".45" stroke-dasharray="3 3" visibility="hidden"/><g id="dots"></g>`;
   s += `<rect x="${pl}" y="${pt}" width="${W - pl - pr}" height="${H - pt - pb}" fill="transparent" id="hit"/></svg><div class="tip" id="tip"></div>`;
   el.innerHTML = s;
