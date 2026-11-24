@@ -12,6 +12,9 @@
 <link rel="apple-touch-icon" href="favicon.svg">
 <link rel="manifest" href="manifest.json">
 <style>
+/* Visitors who ask their device for less motion get the finished state straight away. */
+@media (prefers-reduced-motion: reduce){*,*::before,*::after{animation-duration:0.01ms!important;animation-delay:0s!important;animation-iteration-count:1!important;transition-duration:0.01ms!important;transition-delay:0s!important;scroll-behavior:auto!important}}
+
 *{margin:0;padding:0;box-sizing:border-box}
 html{color-scheme:dark}
 body{background:#08080d;color:#e8e8f0;font-family:'Helvetica Neue',-apple-system,BlinkMacSystemFont,sans-serif;-webkit-font-smoothing:antialiased;transition:background 0.5s ease, filter 0.5s ease;accent-color:#d4a843}
@@ -227,6 +230,9 @@ const PUBLIC_VIEW_TOKEN = URL_PARAMS.get('view') || null;
 let PUBLIC_VIEW_MODE = false;
 
 let LEAGUE_CONTEXT = null;
+// Visitors who ask their device for less motion: JS-driven animations (sparklers,
+// count-ups) jump straight to their final state. CSS animations are handled in <style>.
+const REDUCED_MOTION = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
 let USER_MEMBERSHIP = null;
 let LEAGUE_MEMBERS = [];
 // Season calendar (seasons table), this season's real Oscar results, and -- once the season is
@@ -1766,7 +1772,7 @@ function Sparkler({width=120,height=40,intervalMs=2800,particleCount=18,colors})
 
   useEffect(()=>{
     const canvas=canvasRef.current;
-    if(!canvas) return;
+    if(!canvas||REDUCED_MOTION) return;
     const ctx=canvas.getContext('2d');
     canvas.width=canvas.offsetWidth||120;
     canvas.height=canvas.offsetHeight||40;
@@ -1918,7 +1924,7 @@ function ReleasedTile({released,totalFilms,todayCount,theme}){
   const duration=1400;
 
   useEffect(()=>{
-    if(!isToday){setDisplay(released);return;}
+    if(!isToday||REDUCED_MOTION){setDisplay(released);return;}
     setDisplay(startVal);
     startRef.current=null;
     // Step in integer increments so SlotDigit triggers on each whole number
@@ -1990,6 +1996,7 @@ function TickerNumber({value, duration=1800, formatter=v=>v}){
   const rafRef=useRef(null);
   useEffect(()=>{
     const target=typeof value==='number'?value:0;
+    if(REDUCED_MOTION){setDisplay(target);return;}
     const startVal=target*0.90;
     setDisplay(startVal);
     startRef.current=null;

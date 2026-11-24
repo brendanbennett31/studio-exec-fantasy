@@ -1,0 +1,11 @@
+{
+  "name": "studio-exec-fantasy",
+  "private": true,
+  "description": "Static site; the build only pre-compiles league.html and copies the site files into dist/.",
+  "scripts": {
+    "build": "node build/build.js"
+  },
+  "devDependencies": {
+    "@babel/standalone": "7.23.9"
+  }
+}

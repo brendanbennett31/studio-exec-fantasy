@@ -10,6 +10,9 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet"/>
 <style>
+/* Visitors who ask their device for less motion get the finished state straight away. */
+@media (prefers-reduced-motion: reduce){*,*::before,*::after{animation-duration:0.01ms!important;animation-delay:0s!important;animation-iteration-count:1!important;transition-duration:0.01ms!important;transition-delay:0s!important;scroll-behavior:auto!important}}
+
 :root{
   --bg:#0b0709; --card:#15101a; --card2:#1c1622; --line:#2a2230; --ink:#f2ead8; --ink2:#bfb3a0; --muted:#8a7f72;
   --gold:#fbbf24; --gold2:#d4a843; --good:#34d399; --bad:#f87171;
