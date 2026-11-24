@@ -63,6 +63,10 @@ header{position:sticky;top:0;z-index:50;height:60px;padding:0 32px;display:flex;
 .leagues-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px}
 .league-card{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:24px;display:flex;flex-direction:column;gap:16px;transition:border-color 0.2s,transform 0.15s;position:relative;cursor:pointer}
 .league-card:hover{border-color:#3a3a50;transform:translateY(-2px)}
+/* The hover transform makes each card its own stacking context, so the
+   dropdown's z-index can't escape it -- lift the whole card while its menu
+   is open, or the next row's card paints over the menu. */
+.league-card.menu-open{z-index:30}
 /* No overflow:hidden on .league-card -- it would clip the kebab dropdown,
    which needs to render outside the card's own box. The top gradient bar
    below matches the card's own top corner radius instead, so it doesn't
@@ -830,10 +834,19 @@ function toggleLeagueMenu(leagueId, event) {
   });
   const menu = document.getElementById(targetId);
   if (menu) menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+  syncMenuCards();
 }
 
 function closeLeagueMenus() {
   document.querySelectorAll('.league-menu-dropdown').forEach(el => el.style.display = 'none');
+  syncMenuCards();
+}
+
+function syncMenuCards() {
+  document.querySelectorAll('.league-menu-dropdown').forEach(el => {
+    const card = el.closest('.league-card');
+    if (card) card.classList.toggle('menu-open', el.style.display !== 'none');
+  });
 }
 
 document.addEventListener('click', function(e) {
