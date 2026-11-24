@@ -548,130 +548,163 @@ function LineChart({data,teams,valueFormatter,title,colorMap,labelMap}){
 }
 
 // ─── Champion vs. The All-Time Record ──────────────────────────────────────
-// Replaces the old Daily Box Office chart. Star Wars: The Force Awakens
-// (2015) is still the #1 unadjusted domestic release of all time
-// ($936,662,225) -- a closed historical run, so this is a fixed reference
-// dataset pulled once from Box Office Mojo's own weekly cumulative table
-// for it (boxofficemojo.com/release/rl2691925505/weekly/), not something
-// to keep re-scraping. Held flat at its final total for any week beyond
-// its own 24-week theatrical run, so a longer-running champion's line
-// never has to compare against a gap in the data.
-const SW7_TITLE="Star Wars: The Force Awakens";
-const SW7_WEEKLY_CUMULATIVE=[
-  390856054,651967269,770381043,825932841,865032346,884644162,899071469,
-  908644964,917806295,923001884,926977515,929459260,931358187,932857528,
-  934216519,935149389,935642689,935910912,936121508,936283302,936417193,
-  936540076,936641878,936662225,
-];
-function sw7CumulativeAtWeek(week){
-  const idx=Math.min(Math.max(week,1),SW7_WEEKLY_CUMULATIVE.length)-1;
-  return SW7_WEEKLY_CUMULATIVE[idx];
+// This season's best run at the all-time domestic record, lined up by time
+// since release rather than calendar date.
+//
+// The record: whichever film released BEFORE this season has the highest total
+// we've tracked, drawn from its own daily_bo run (Spider-Man: Brand New Day from
+// the 2027 season on). A film that beats the record during a season becomes the
+// record from the next season on -- nothing to update by hand. Star Wars: The
+// Force Awakens (2015, $936,662,225) is the fallback for seasons before any
+// tracked film beat it; its closed run is a fixed weekly table from Box Office
+// Mojo (boxofficemojo.com/release/rl2691925505/weekly/).
+//
+// The champion: every film released in this season's window, drafted or not,
+// ranked by PACE -- its total so far divided by where the record stood at the
+// same day of its own run. A record-setting opener takes over the chart the week
+// it opens; a big film that's fading falls back behind one that's keeping up.
+const SW7_RECORD={
+  title:"Star Wars: The Force Awakens",short:"Star Wars 7",daily:null,final:936662225,
+  weekly:[
+    390856054,651967269,770381043,825932841,865032346,884644162,899071469,
+    908644964,917806295,923001884,926977515,929459260,931358187,932857528,
+    934216519,935149389,935642689,935910912,936121508,936283302,936417193,
+    936540076,936641878,936662225,
+  ],
+};
+
+function recLocalIso(d){return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");}
+function recDayDiff(a,b){return Math.round((Date.parse(b+"T00:00:00Z")-Date.parse(a+"T00:00:00Z"))/864e5);}
+function recShortTitle(t){return t.length<=18?t:(t.split(":")[0].trim()||t);}
+
+// daily_bo rows -> running total per day of the run (index 0 = first day with a
+// gross). Rows can exist under two legacy league keys, so keep one per date; a
+// day with no row carries the total forward.
+function recDailyRun(rows){
+  const byDate={};
+  (rows||[]).forEach(r=>{ if(!(r.bo_date in byDate)) byDate[r.bo_date]=Number(r.daily_gross)||0; });
+  const dates=Object.keys(byDate).sort();
+  if(!dates.length) return [];
+  const run=new Array(recDayDiff(dates[0],dates[dates.length-1])+1).fill(0);
+  dates.forEach(d=>{ run[recDayDiff(dates[0],d)]+=byDate[d]; });
+  let cum=0;
+  return run.map(v=>(cum+=v));
+}
+// -> [{week, value, day}], day = how many days of the run that point covers
+// (the last week can be partial).
+function recWeekly(run){
+  const out=[];
+  for(let w=1;(w-1)*7<run.length;w++){ const day=Math.min(w*7,run.length); out.push({week:w,value:run[day-1],day}); }
+  return out;
+}
+// Where the record stood N days / N weeks into its run; held at its final total
+// past the end of the tracked run.
+function recordAtDay(rec,day){
+  if(rec.daily) return day>rec.daily.length?rec.final:rec.daily[Math.max(day,1)-1];
+  return recordAtWeek(rec,Math.ceil(Math.max(day,1)/7));
+}
+function recordAtWeek(rec,week){
+  return week>rec.weekly.length?rec.final:rec.weekly[Math.max(week,1)-1];
 }
 
-// Tracks whichever film currently has the highest domestic total in this
-// league against the same week-by-week trajectory Star Wars 7 had at that
-// point in ITS run -- lined up by week-since-release rather than calendar
-// date, so you can see whether the current pace is ahead of or behind the
-// all-time record at the same stage. "Champion" is just whichever film has
-// the highest bo right now, recomputed on every render -- no separate
-// "current record holder" state to maintain; a new film simply takes over
-// the chart the moment its own total passes the previous leader's.
-// Custom chart rather than reusing LineChart: this needs to show the FULL
-// 24-week Star Wars 7 arc as a fixed backdrop even when the champion only
-// has a handful of real weeks so far (so you can see the whole shape of
-// the record it's chasing, not just the sliver of it lined up with today),
-// while the champion's own line has to stop dead at its last real data
-// point instead of crashing to zero like LineChart's shared-length series
-// would force it to. Also adds a per-week ahead/behind dot strip, which is
-// specific enough to this one comparison that it doesn't belong in the
-// generic chart either.
-function ChampionVsRecordChart({films}){
+async function loadRecordChart(season){
+  const win=seasonWindowFor(season);
+  const today=recLocalIso(new Date());
+  const thruDay=recLocalIso(new Date(Date.now()-864e5)); // box office is reported through yesterday
+  const films=(await supabaseFetchAll("universe_films",`select=id,title,release_date,bo&bo=gt.0&release_date=lte.${today}&order=bo.desc,id.asc`))
+    .map(f=>({...f,bo:Number(f.bo)||0}));
+  const dailyFor=async title=>recDailyRun(await supabaseFetchAll("daily_bo",`film_title=eq.${encodeURIComponent(title)}&select=bo_date,daily_gross&order=bo_date.asc,id.asc`));
+
+  let record=SW7_RECORD;
+  const prior=win?films.find(f=>f.release_date&&f.release_date<win.start):null;
+  if(prior&&prior.bo>SW7_RECORD.final){
+    const daily=await dailyFor(prior.title);
+    if(daily.length>=7){
+      record={title:prior.title,short:recShortTitle(prior.title),daily,final:Math.max(prior.bo,daily[daily.length-1])};
+      record.weekly=recWeekly(daily).map(w=>w.value);
+    }
+  }
+
+  let champ=null;
+  (win?films.filter(f=>f.release_date&&f.release_date>=win.start&&f.release_date<=win.end):[]).forEach(f=>{
+    const day=Math.max(1,recDayDiff(f.release_date,thruDay)+1);
+    const pace=f.bo/recordAtDay(record,day);
+    if(!champ||pace>champ.pace) champ={...f,day,pace};
+  });
+  if(!champ) return {status:"none",record};
+  const daily=await dailyFor(champ.title);
+  return {status:"ready",record,champ:{...champ,weekly:recWeekly(daily)}};
+}
+
+function ChampionVsRecordChart({season}){
   const svgRef=useRef(null);
   const[hoverWeek,setHoverWeek]=useState(null);
-  const[weekly,setWeekly]=useState([]);
-  const[loadingWeekly,setLoadingWeekly]=useState(true);
+  const[state,setState]=useState({status:"loading"});
 
-  const champion=useMemo(()=>{
-    const released=films.filter(f=>f.bo>0);
-    return released.length?[...released].sort((a,b)=>b.bo-a.bo)[0]:null;
-  },[films]);
-
-  // Scoped to just the current champion's own title, fetched fresh here
-  // rather than passed down from a bulk app-level load -- daily_bo grew
-  // past Supabase/PostgREST's default 1000-row response cap once every
-  // film started getting real daily tracking (previously invisible, since
-  // total rows stayed well under that). A bulk fetch ordered by date
-  // ascending was silently getting truncated at row 1000, dropping the
-  // TAIL of the data -- i.e. exactly the most recent films, which is
-  // exactly what made Spider-Man's data disappear. A single film's daily
-  // rows will never realistically approach that cap.
   useEffect(()=>{
-    if(!champion){ setWeekly([]); setLoadingWeekly(false); return; }
+    if(!season){ setState({status:"loading"}); return; }
     let cancelled=false;
-    setLoadingWeekly(true);
-    supabaseFetch("daily_bo", `film_title=eq.${encodeURIComponent(champion.title)}&order=bo_date.asc`)
-      .then(rows=>{
-        if(cancelled) return;
-        let cum=0;
-        const byWeek={};
-        // Daily box office is film-level (shared by every league); older rows may exist
-        // under more than one league key, so keep one row per date.
-        const seenDates=new Set();
-        const uniqueRows=(rows||[]).filter(r=>!seenDates.has(r.bo_date)&&seenDates.add(r.bo_date));
-        uniqueRows.forEach((r,i)=>{
-          cum+=Number(r.daily_gross);
-          byWeek[Math.ceil((i+1)/7)]=cum;
-        });
-        setWeekly(Object.keys(byWeek).map(Number).sort((a,b)=>a-b).map(wk=>({week:wk,value:byWeek[wk]})));
-      })
-      .catch(e=>{ console.warn("[trends] champion daily_bo fetch failed:", e.message); if(!cancelled) setWeekly([]); })
-      .finally(()=>{ if(!cancelled) setLoadingWeekly(false); });
+    setState({status:"loading"});
+    loadRecordChart(season)
+      .then(s=>{ if(!cancelled) setState(s); })
+      .catch(e=>{ console.warn("[trends] record chart failed:", e.message); if(!cancelled) setState({status:"error"}); });
     return ()=>{cancelled=true;};
-  },[champion?.title]);
+  },[season]);
 
-  if(!champion){
-    return(
-      <div style={{background:"#111119",border:"1px solid #222233",borderRadius:10,padding:"16px 14px"}}>
-        <div style={{fontSize:12,fontWeight:700,color:"#a855f7",letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:4}}>Champion vs. The All-Time Record</div>
-        <div style={{fontSize:12,color:"#6a6a7e"}}>No released films yet.</div>
-      </div>
-    );
-  }
-  if(loadingWeekly){
-    return(
-      <div style={{background:"#111119",border:"1px solid #222233",borderRadius:10,padding:"16px 14px"}}>
-        <div style={{fontSize:12,fontWeight:700,color:"#a855f7",letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:4}}>Champion vs. The All-Time Record</div>
-        <div style={{fontSize:12,color:"#6a6a7e"}}>Loading {champion.title}'s tracking data…</div>
-      </div>
-    );
-  }
+  const heading=<div style={{fontSize:12,fontWeight:700,color:"#a855f7",letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:4}}>Champion vs. The All-Time Record</div>;
+  const shell=body=>(
+    <div style={{background:"#111119",border:"1px solid #222233",borderRadius:10,padding:"16px 14px"}}>
+      {heading}
+      <div style={{fontSize:12,color:"#6a6a7e"}}>{body}</div>
+    </div>
+  );
+  if(state.status==="loading") return shell("Loading the record chase…");
+  if(state.status==="error") return shell("Couldn't load the record chart right now.");
+  const{record,champ}=state;
+  if(state.status==="none") return shell(<>No film from this season has opened yet. The first one to open goes up against {record.title} ({fmt(record.final)}), the all-time domestic record.</>);
+
+  const pacePct=(champ.pace*100).toFixed(0);
+  const paceAhead=champ.pace>=1;
+  const summary=(
+    <div style={{marginTop:10,padding:"10px 12px",borderRadius:6,background:paceAhead?"rgba(52,211,153,0.08)":"rgba(248,113,113,0.08)",border:`1px solid ${paceAhead?"rgba(52,211,153,0.25)":"rgba(248,113,113,0.25)"}`,fontSize:12,color:paceAhead?"#34d399":"#f87171"}}>
+      {champ.day} days in, {champ.title} has {fmt(champ.bo)} — {pacePct}% of the {fmt(recordAtDay(record,champ.day))} {record.short} had at the same point, so it's {paceAhead?"ahead of":"behind"} record pace.
+    </div>
+  );
+  const blurb=<div style={{fontSize:10,color:"#6a6a7e",marginBottom:12}}>{champ.title} — this season's closest run at the record — vs. {record.title}, the all-time domestic #1 ({fmt(record.final)}). Lined up by week of release, not calendar date. Whichever film this season is nearest the record's pace holds this spot, so a record-breaking opener takes over the week it opens. Dots along the bottom mark each week it tracked ahead (green) or behind (red).</div>;
+
+  const weekly=champ.weekly;
   if(!weekly.length){
     return(
       <div style={{background:"#111119",border:"1px solid #222233",borderRadius:10,padding:"16px 14px"}}>
-        <div style={{fontSize:12,fontWeight:700,color:"#a855f7",letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:4}}>Champion vs. The All-Time Record</div>
-        <div style={{fontSize:12,color:"#6a6a7e"}}>{champion.title} is this league's current #1 by box office ({fmt(champion.bo)}), but there's no week-by-week tracking data for it in this league yet.</div>
+        {heading}{blurb}
+        <div style={{fontSize:12,color:"#6a6a7e"}}>Its week-by-week line appears once the daily box office for it has been collected.</div>
+        {summary}
       </div>
     );
   }
 
-  const champWeeks=weekly.length; // how many real weeks the champion has so far
-  const totalWeeks=Math.max(SW7_WEEKLY_CUMULATIVE.length,champWeeks); // full backdrop range -- extends past 24 if the champion has outlasted SW7's own run
-  const maxVal=Math.max(SW7_WEEKLY_CUMULATIVE[SW7_WEEKLY_CUMULATIVE.length-1],...weekly.map(w=>w.value));
+  // the champion's last week can be partial -- compare it to the record at the same DAY
+  const recAtPoint=w=>recordAtDay(record,w.day);
+  const champWeeks=weekly.length;
+  const totalWeeks=Math.max(record.weekly.length,champWeeks);
+  const maxVal=Math.max(record.final,...weekly.map(w=>w.value));
   const W=700,H=300,pL=70,pR=30,pT=20,pB=52;
   const pW=W-pL-pR,pH=H-pT-pB;
   const xStep=totalWeeks>1?pW/(totalWeeks-1):0;
   const xFor=weekNum=>pL+(weekNum-1)*xStep;
   const yFor=v=>pT+pH-(v/maxVal)*pH;
+  const weeks=Array.from({length:totalWeeks},(_,i)=>i+1);
 
-  const sw7Path=Array.from({length:totalWeeks},(_,i)=>i+1).map((wk,i)=>`${i===0?"M":"L"}${xFor(wk)},${yFor(sw7CumulativeAtWeek(wk))}`).join(" ");
+  const recPath=weeks.map((wk,i)=>`${i===0?"M":"L"}${xFor(wk)},${yFor(recordAtWeek(record,wk))}`).join(" ");
   const champPath=weekly.map((w,i)=>`${i===0?"M":"L"}${xFor(w.week)},${yFor(w.value)}`).join(" ");
 
   const activeWeek=hoverWeek??champWeeks;
-  const activeSW7=sw7CumulativeAtWeek(activeWeek);
-  const activeChampPoint=weekly.find(w=>w.week===activeWeek);
+  const activeChampPoint=weekly.find(w=>w.week===activeWeek)||null;
+  const partial=activeChampPoint&&activeChampPoint.day<activeWeek*7;
+  const activeRec=activeChampPoint?recAtPoint(activeChampPoint):recordAtWeek(record,activeWeek);
   const activeChamp=activeChampPoint?activeChampPoint.value:null;
-  const delta=activeChamp!==null?activeChamp-activeSW7:null;
-  const deltaPct=activeChamp!==null?(activeChamp/activeSW7-1)*100:null;
+  const delta=activeChamp!==null?activeChamp-activeRec:null;
+  const deltaPct=activeChamp!==null?(activeChamp/activeRec-1)*100:null;
   const ahead=delta!==null&&delta>=0;
 
   function handleMove(clientX){
@@ -682,22 +715,20 @@ function ChampionVsRecordChart({films}){
     if(wk>=1&&wk<=totalWeeks) setHoverWeek(wk);
   }
 
-  const maxLabels=8;
-  const labelStep=Math.max(1,Math.ceil(totalWeeks/maxLabels));
+  const labelStep=Math.max(1,Math.ceil(totalWeeks/8));
 
   return(
     <div style={{background:"#111119",border:"1px solid #222233",borderRadius:10,padding:"16px 14px"}}>
-      <div style={{fontSize:12,fontWeight:700,color:"#a855f7",letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:4}}>Champion vs. The All-Time Record</div>
-      <div style={{fontSize:10,color:"#6a6a7e",marginBottom:12}}>{champion.title} — this league's current #1 — vs. {SW7_TITLE}'s full 24-week theatrical run, 2015's all-time domestic record ({fmt(SW7_WEEKLY_CUMULATIVE[SW7_WEEKLY_CUMULATIVE.length-1])} final). Lined up by week-since-release, not calendar date. Dots along the bottom mark each week {champion.title} tracked ahead (green) or behind (red).</div>
+      {heading}{blurb}
 
       <div style={{background:"#1a1a28",borderRadius:8,padding:"10px 14px",marginBottom:10}}>
         <div style={{fontWeight:700,color:"#d4a843",marginBottom:6,fontSize:12,display:"flex",justifyContent:"space-between"}}>
-          <span>Week {activeWeek}</span>
+          <span>Week {activeWeek}{partial?` (first ${activeChampPoint.day} days)`:""}</span>
           <span style={{color:"#4a4a5e",fontWeight:400,fontSize:10}}>hover chart to explore</span>
         </div>
         <div style={{display:"flex",gap:16,flexWrap:"wrap",fontSize:12}}>
-          <div style={{display:"flex",alignItems:"center",gap:6}}><div style={{width:8,height:8,borderRadius:"50%",background:"#a855f7"}}/><span style={{color:"#8a8a9e"}}>Star Wars 7</span><span style={{fontFamily:"monospace",color:"#a855f7",fontWeight:600}}>{fmt(activeSW7)}</span></div>
-          <div style={{display:"flex",alignItems:"center",gap:6}}><div style={{width:8,height:8,borderRadius:"50%",background:"#34d399"}}/><span style={{color:"#8a8a9e"}}>{champion.title}</span><span style={{fontFamily:"monospace",color:"#34d399",fontWeight:600}}>{activeChamp!==null?fmt(activeChamp):"no data yet"}</span></div>
+          <div style={{display:"flex",alignItems:"center",gap:6,minWidth:0}}><div style={{width:8,height:8,borderRadius:"50%",background:"#a855f7",flexShrink:0}}/><span style={{color:"#8a8a9e"}}>{record.short}</span><span style={{fontFamily:"monospace",color:"#a855f7",fontWeight:600}}>{fmt(activeRec)}</span></div>
+          <div style={{display:"flex",alignItems:"center",gap:6,minWidth:0}}><div style={{width:8,height:8,borderRadius:"50%",background:"#34d399",flexShrink:0}}/><span style={{color:"#8a8a9e"}}>{champ.title}</span><span style={{fontFamily:"monospace",color:"#34d399",fontWeight:600}}>{activeChamp!==null?fmt(activeChamp):"not there yet"}</span></div>
           {delta!==null&&<div style={{fontFamily:"monospace",fontWeight:700,color:ahead?"#34d399":"#f87171"}}>{ahead?"+":""}{fmt(delta)} ({deltaPct.toFixed(0)}%) {ahead?"ahead":"behind"}</div>}
         </div>
       </div>
@@ -706,7 +737,7 @@ function ChampionVsRecordChart({films}){
         onMouseMove={e=>handleMove(e.clientX)} onMouseLeave={()=>setHoverWeek(null)}
         onTouchMove={e=>{e.preventDefault();handleMove(e.touches[0].clientX)}} onTouchEnd={()=>setHoverWeek(null)}>
         {[0,.25,.5,.75,1].map(p=>{const y=pT+pH*(1-p);return(<g key={p}><line x1={pL} y1={y} x2={W-pR} y2={y} stroke="#1a1a28"/><text x={pL-6} y={y+4} fill="#4a4a5e" fontSize={9} textAnchor="end" fontFamily="monospace">{fmt(maxVal*p)}</text></g>);})}
-        {Array.from({length:totalWeeks},(_,i)=>i+1).map(wk=>{
+        {weeks.map(wk=>{
           const x=xFor(wk);const showLabel=(wk-1)%labelStep===0||wk===totalWeeks;
           return(<g key={wk}>
             <line x1={x} y1={H-pB} x2={x} y2={H-pB+4} stroke={wk===activeWeek?"#d4a843":"#3a3a4e"}/>
@@ -714,26 +745,20 @@ function ChampionVsRecordChart({films}){
           </g>);
         })}
         <line x1={xFor(activeWeek)} y1={pT} x2={xFor(activeWeek)} y2={pT+pH} stroke="#d4a843" strokeWidth={1} strokeDasharray="4 3" opacity={0.4}/>
-        <path d={sw7Path} fill="none" stroke="#a855f7" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" opacity={0.8}/>
+        <path d={recPath} fill="none" stroke="#a855f7" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" opacity={0.8}/>
         <path d={champPath} fill="none" stroke="#34d399" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" opacity={0.85}/>
-        {Array.from({length:totalWeeks},(_,i)=>i+1).map(wk=><circle key={wk} cx={xFor(wk)} cy={yFor(sw7CumulativeAtWeek(wk))} r={wk===activeWeek?4:2} fill="#a855f7" opacity={wk===activeWeek?1:0.5}/>)}
+        {weeks.map(wk=><circle key={wk} cx={xFor(wk)} cy={yFor(recordAtWeek(record,wk))} r={wk===activeWeek?4:2} fill="#a855f7" opacity={wk===activeWeek?1:0.5}/>)}
         {weekly.map(w=><circle key={w.week} cx={xFor(w.week)} cy={yFor(w.value)} r={w.week===activeWeek?4:2} fill="#34d399" opacity={w.week===activeWeek?1:0.6}/>)}
-        {/* "now" marker on the champion's most recent real point */}
+        {/* "now" marker on the champion's most recent point */}
         <circle cx={xFor(champWeeks)} cy={yFor(weekly[weekly.length-1].value)} r={7} fill="none" stroke="#34d399" strokeWidth={1.5}/>
         {/* per-week ahead/behind dot strip */}
-        {weekly.map(w=>{
-          const isAhead=w.value>=sw7CumulativeAtWeek(w.week);
-          return<circle key={`ind-${w.week}`} cx={xFor(w.week)} cy={H-pB+28} r={2.5} fill={isAhead?"#34d399":"#f87171"} opacity={w.week===activeWeek?1:0.65}/>;
-        })}
+        {weekly.map(w=><circle key={`ind-${w.week}`} cx={xFor(w.week)} cy={H-pB+28} r={2.5} fill={w.value>=recAtPoint(w)?"#34d399":"#f87171"} opacity={w.week===activeWeek?1:0.65}/>)}
       </svg>
       <div style={{display:"flex",gap:14,justifyContent:"center",marginTop:8,flexWrap:"wrap"}}>
-        <div style={{display:"flex",alignItems:"center",gap:4,fontSize:11,color:"#8a8a9e"}}><div style={{width:12,height:3,background:"#a855f7",borderRadius:2}}/>Star Wars 7 (full run)</div>
-        <div style={{display:"flex",alignItems:"center",gap:4,fontSize:11,color:"#8a8a9e"}}><div style={{width:12,height:3,background:"#34d399",borderRadius:2}}/>{champion.title} (to date)</div>
+        <div style={{display:"flex",alignItems:"center",gap:4,fontSize:11,color:"#8a8a9e"}}><div style={{width:12,height:3,background:"#a855f7",borderRadius:2}}/>{record.short} (full run)</div>
+        <div style={{display:"flex",alignItems:"center",gap:4,fontSize:11,color:"#8a8a9e",minWidth:0}}><div style={{width:12,height:3,background:"#34d399",borderRadius:2,flexShrink:0}}/><span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{champ.title} (to date)</span></div>
       </div>
-
-      <div style={{marginTop:10,padding:"10px 12px",borderRadius:6,background:ahead?"rgba(52,211,153,0.08)":"rgba(248,113,113,0.08)",border:`1px solid ${ahead?"rgba(52,211,153,0.25)":"rgba(248,113,113,0.25)"}`,fontSize:12,color:ahead?"#34d399":"#f87171"}}>
-        As of week {champWeeks}, {champion.title} is {(weekly[weekly.length-1].value>=sw7CumulativeAtWeek(champWeeks))?"tracking ahead of":"tracking behind"} Star Wars 7's pace at the same point in its run ({((weekly[weekly.length-1].value/sw7CumulativeAtWeek(champWeeks))*100).toFixed(0)}% of where it was).
-      </div>
+      {summary}
     </div>
   );
 }
@@ -2866,7 +2891,7 @@ function TrendsTab({films,data,weeklyBO,weeklyPOI,leagueCtx}){
     </div>
 
     {/* Champion vs. The All-Time Record */}
-    <div style={{...anim(2)}}><ChampionVsRecordChart films={films}/></div>
+    <div style={{...anim(2)}}><ChampionVsRecordChart season={leagueCtx?.season||LEAGUE_CONTEXT?.season}/></div>
 
     {/* Top Performers */}
     <div style={{background:"#111119",border:"1px solid #222233",borderRadius:10,padding:"16px 14px",...anim(3)}}>
