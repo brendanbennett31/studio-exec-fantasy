@@ -1132,6 +1132,7 @@ function EndgameCountdownBanner({theme}){
 // ─── MAIN ──────────────────
 function App(){
   const[tab,setTab]=useState(localStorage.getItem('sef_default_tab')||"standings");
+  const[openPicksNext,setOpenPicksNext]=useState(false);
   const[films,setFilms]=useState([]);
   const[liveStatus,setLiveStatus]=useState("loading");
   const[expandedExecs,setExpandedExecs]=useState(new Set());
@@ -1590,7 +1591,11 @@ function App(){
             <div style={{fontSize:11,color:theme.textMuted,letterSpacing:"0.15em",textTransform:"uppercase",fontFamily:"monospace"}}>Loading league…</div>
           </div>
         ):needsDraftModeChoice?(
-          <DraftModeChoice isAdmin={isAdmin} onChosen={(mode)=>setLeagueCtx(prev=>({...prev,draft_mode:mode}))}/>
+          <DraftModeChoice isAdmin={isAdmin} onChosen={(mode)=>{
+            setLeagueCtx(prev=>({...prev,draft_mode:mode}));
+            // Manual Entry goes straight to the Manage tab's Add Picks.
+            if(mode==="manual"){setOpenPicksNext(true);setTab("manage");}
+          }}/>
         ):(
         <div style={{animation:"fadeSlideUp 0.35s ease-out both"}}>
         {/* Endgame countdown banner - replaces "days left" tile concept */}
@@ -1631,7 +1636,7 @@ function App(){
         {tab==="acquisitions"&&leagueCtx?.acquisitions_enabled&&<div key="acquisitions" style={{animation:"fadeSlideUp 0.4s ease-out both"}}><AcquisitionsTab leagueContext={leagueCtx} members={leagueMembers} userMembership={membership}/></div>}
         {tab==="draft"&&draftTab.length>0&&<div key="draft" style={{animation:"fadeSlideUp 0.4s ease-out both"}}><DraftRoomTab leagueContext={leagueCtx} members={leagueMembers} userMembership={membership} films={films} draftSession={draftSession} setDraftSession={setDraftSession}/></div>}
         {tab==="rules"&&<div key="rules" style={{animation:"fadeSlideUp 0.4s ease-out both"}}><Rules leagueCtx={leagueCtx}/></div>}
-        {tab==="manage"&&isAdmin&&<div key="manage" style={{animation:"fadeSlideUp 0.4s ease-out both"}}><ManageTab leagueContext={leagueCtx} members={leagueMembers} userMembership={membership} draftSession={draftSession} refreshDraftSession={refreshDraftSession} onGoToDraftRoom={()=>setTab("draft")}/></div>}
+        {tab==="manage"&&isAdmin&&<div key="manage" style={{animation:"fadeSlideUp 0.4s ease-out both"}}><ManageTab leagueContext={leagueCtx} members={leagueMembers} userMembership={membership} draftSession={draftSession} refreshDraftSession={refreshDraftSession} onGoToDraftRoom={()=>setTab("draft")} openPicksOnMount={openPicksNext} onPicksOpened={()=>setOpenPicksNext(false)}/></div>}
         </div>
         )}
         <div style={{textAlign:"center",padding:"24px 0 8px",fontSize:10,color:"#3a3a4e",letterSpacing:"0.12em",textTransform:"uppercase",fontFamily:"monospace"}}>{FINAL_RESULT?`Season final · ${new Date(FINAL_RESULT.finalized_at).toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"})}`:<>{Math.max(days,0)} days until Oscar Sunday &bull; {seasonDates().eligibilityEnd}</>}</div>
@@ -1640,6 +1645,12 @@ function App(){
         @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
         @keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
         @keyframes fadeSlideUp{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:translateY(0)}}
+        .dm-opt{transition:transform .2s cubic-bezier(.2,.8,.2,1),border-color .2s,background .2s,box-shadow .2s}
+        .dm-live{border:1px solid rgba(212,168,67,0.35);background:rgba(212,168,67,0.08)}
+        .dm-manual{border:1px solid #222233;background:#111119}
+        .dm-opt:not(:disabled):hover,.dm-opt:not(:disabled):focus-visible{transform:translateY(-3px);outline:none}
+        .dm-live:not(:disabled):hover,.dm-live:not(:disabled):focus-visible{border-color:#d4a843;background:rgba(212,168,67,0.16);box-shadow:0 10px 28px rgba(212,168,67,0.18)}
+        .dm-manual:not(:disabled):hover,.dm-manual:not(:disabled):focus-visible{border-color:#5a5a78;background:#1a1a28;box-shadow:0 10px 28px rgba(0,0,0,0.45)}
         @keyframes cardIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
         @keyframes drawLine{from{stroke-dashoffset:var(--line-len)}to{stroke-dashoffset:0}}
         @keyframes clipGrow{from{transform:scaleY(0);transform-origin:bottom}to{transform:scaleY(1);transform-origin:bottom}}
@@ -4683,11 +4694,11 @@ function DraftModeChoice({isAdmin, onChosen}){
       {msg&&<div style={{fontSize:12,color:"#ef4444"}}>{msg}</div>}
       {isAdmin?(
         <div style={{display:"flex",gap:14,flexWrap:"wrap",justifyContent:"center",marginTop:8}}>
-          <button onClick={()=>choose("live")} disabled={!!saving} style={{padding:"18px 22px",borderRadius:12,border:"1px solid rgba(212,168,67,0.35)",background:"rgba(212,168,67,0.08)",color:"#d4a843",fontSize:14,fontWeight:700,cursor:"pointer",width:220,opacity:saving?0.7:1,textAlign:"left"}}>
+          <button className="dm-opt dm-live" onClick={()=>choose("live")} disabled={!!saving} style={{padding:"18px 22px",borderRadius:12,color:"#d4a843",fontSize:14,fontWeight:700,cursor:"pointer",width:220,opacity:saving?0.7:1,textAlign:"left"}}>
             Live Draft
             <div style={{fontSize:11,fontWeight:400,color:"#8a8a9e",marginTop:6,lineHeight:1.4}}>Players take turns nominating films, everyone bids live, a countdown decides the winner.</div>
           </button>
-          <button onClick={()=>choose("manual")} disabled={!!saving} style={{padding:"18px 22px",borderRadius:12,border:"1px solid #222233",background:"#111119",color:"#e8e8f0",fontSize:14,fontWeight:700,cursor:"pointer",width:220,opacity:saving?0.7:1,textAlign:"left"}}>
+          <button className="dm-opt dm-manual" onClick={()=>choose("manual")} disabled={!!saving} style={{padding:"18px 22px",borderRadius:12,color:"#e8e8f0",fontSize:14,fontWeight:700,cursor:"pointer",width:220,opacity:saving?0.7:1,textAlign:"left"}}>
             Manual Entry
             <div style={{fontSize:11,fontWeight:400,color:"#8a8a9e",marginTop:6,lineHeight:1.4}}>An admin adds each pick by hand from the Manage tab, like this app has always worked.</div>
           </button>
@@ -5143,7 +5154,7 @@ function DraftRoomTab({leagueContext, members, userMembership, films, draftSessi
 }
 
 // ─── MANAGE TAB (Admin only) ──────────────────────────────────────────────────
-function ManageTab({leagueContext, members, userMembership, draftSession, refreshDraftSession, onGoToDraftRoom}){
+function ManageTab({leagueContext, members, userMembership, draftSession, refreshDraftSession, onGoToDraftRoom, openPicksOnMount, onPicksOpened}){
   const l = leagueContext || {};
   const[draftStatus,setDraftStatus]=React.useState(l.draft_status||'open');
   const[editingRules,setEditingRules]=React.useState(false);
@@ -5368,6 +5379,21 @@ function ManageTab({leagueContext, members, userMembership, draftSession, refres
     if(universeFilms.length===0) loadUniverseAndPicks();
   }
 
+  // Arriving from "Manual Entry" on a brand-new league: open Add Picks and
+  // bring it into view, since that's the whole reason the admin is here.
+  const addPicksRef=React.useRef(null);
+  React.useEffect(()=>{
+    if(!openPicksOnMount) return;
+    openPicksSection();
+    // clear the parent's flag only once the scroll has run -- clearing it
+    // straight away re-ran this effect and its cleanup cancelled the scroll
+    const t=setTimeout(()=>{
+      addPicksRef.current?.scrollIntoView({behavior:REDUCED_MOTION?"auto":"smooth",block:"start"});
+      onPicksOpened&&onPicksOpened();
+    },120);
+    return()=>clearTimeout(t);
+  },[openPicksOnMount]);
+
   function getVisiblePickCandidates(){
     const already=new Set(picksList.filter(p=>p.imdb_id).map(p=>p.imdb_id));
     let list=universeFilms.filter(f=>!already.has(f.imdb_id));
@@ -5518,7 +5544,7 @@ function ManageTab({leagueContext, members, userMembership, draftSession, refres
       </div>
 
       {/* Add Picks */}
-      <div style={{background:'#111119',border:'1px solid #222233',borderRadius:10,padding:'16px 14px'}}>
+      <div ref={addPicksRef} style={{background:'#111119',border:'1px solid #222233',borderRadius:10,padding:'16px 14px',scrollMarginTop:70}}>
         <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:picksOpen?14:0}}>
           <div style={{fontSize:12,fontWeight:700,color:'#d4a843',letterSpacing:'0.08em',textTransform:'uppercase'}}>Add Picks</div>
           {!picksOpen&&<button onClick={openPicksSection} style={{padding:'5px 14px',borderRadius:6,border:'1px solid #222233',background:'transparent',color:'#6a6a7e',fontSize:11,fontWeight:600,cursor:'pointer'}}>Manage Picks</button>}

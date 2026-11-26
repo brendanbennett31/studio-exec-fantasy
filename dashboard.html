@@ -106,7 +106,18 @@ header{position:sticky;top:0;z-index:50;height:60px;padding:0 32px;display:flex;
 .league-menu-btn:hover{background:var(--bg3);border-color:var(--border);color:var(--text)}
 .league-menu-dropdown{position:absolute;right:0;top:calc(100% + 6px);background:#1a1a28;border:1px solid var(--border);border-radius:10px;padding:6px;min-width:190px;z-index:20;box-shadow:0 8px 24px rgba(0,0,0,0.4)}
 .league-menu-item{width:100%;display:flex;align-items:center;gap:9px;padding:8px 10px;background:transparent;border:none;color:var(--text);font-size:13px;cursor:pointer;border-radius:6px;text-align:left;font-family:inherit;white-space:nowrap}
-.league-menu-item:hover{background:var(--bg3)}
+.league-menu-item{transition:background .15s,color .15s}
+/* the dropdown itself is --bg3, so hovering needs a step lighter to show */
+.league-menu-item:hover:not(:disabled),.league-menu-item:focus-visible{background:#26263a;outline:none}
+.league-menu-item:disabled{color:var(--muted);cursor:default;opacity:.7}
+.league-menu-item-sub{display:block;font-size:10.5px;color:var(--muted);margin-top:1px;white-space:normal}
+/* Reorder grip (drag, or arrow keys when focused) */
+.league-drag{width:26px;height:26px;border-radius:6px;display:flex;align-items:center;justify-content:center;color:var(--muted);background:transparent;border:1px solid transparent;cursor:grab;touch-action:none;opacity:.5;transition:opacity .15s,background .15s,color .15s,border-color .15s;padding:0}
+.league-card:hover .league-drag,.league-drag:focus-visible{opacity:1}
+.league-drag:hover,.league-drag:focus-visible{background:var(--bg3);border-color:var(--border);color:var(--text);outline:none}
+@media (hover:none){.league-drag{opacity:.85}}
+.league-card.dragging{z-index:40;border-color:rgba(212,168,67,0.6);box-shadow:0 18px 44px rgba(0,0,0,0.55)}
+body.dragging-leagues,body.dragging-leagues *{cursor:grabbing!important;user-select:none}
 .league-menu-item.danger{color:#ef4444}
 .league-menu-item.danger:hover{background:rgba(239,68,68,0.08)}
 .league-menu-code{padding:8px 10px;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted)}
@@ -607,8 +618,8 @@ async function init() {
     }
   }
 
-  // Load league memberships
-  await loadLeagues();
+  // Load league memberships (plus the bits the cards need: saved order, nominations)
+  await Promise.all([loadLeagues(), refreshUserMeta(), loadNominationSeasons()]);
   await loadNotificationBadges();
   renderDashboard();
 
@@ -717,12 +728,12 @@ function renderLeagues() {
     `;
   }
 
-  const current = userLeagues.filter(m => !isPastSeason(m.league));
+  const current = applyLeagueOrder(userLeagues.filter(m => !isPastSeason(m.league)));
   const past = userLeagues.filter(m => isPastSeason(m.league))
     .sort((a, b) => String(b.league.finalized_at).localeCompare(String(a.league.finalized_at)));
   return `
     ${current.length ? `<div style="border:1px solid #222233;border-radius:12px;padding:20px;background:#12121c">
-      <div class="leagues-grid">${current.map(m => renderLeagueCard(m)).join('')}</div>
+      <div class="leagues-grid">${current.map(m => renderLeagueCard(m, current.length > 1)).join('')}</div>
     </div>` : `<div class="empty-state" style="padding:28px 16px"><h3>No active leagues</h3><p>Start a league for the new season, or join one with an invite code.</p></div>`}
     ${past.length ? `<details class="past-seasons" style="margin-top:18px">
       <summary style="cursor:pointer;list-style:none;display:flex;align-items:center;gap:8px;font-size:11px;letter-spacing:0.15em;text-transform:uppercase;color:#8a8a9e;font-weight:700;padding:6px 0">
@@ -752,7 +763,7 @@ function renderWrappedStrip(league, membership) {
     <span style="font-weight:800;white-space:nowrap">See Wrapped &rarr;</span></a>`;
 }
 
-function renderLeagueCard(membership) {
+function renderLeagueCard(membership, reorderable) {
   const league = membership.league;
   const role = membership.role;
   const teamName = membership.team_name || '—';
@@ -770,10 +781,13 @@ function renderLeagueCard(membership) {
       <svg width="13" height="13" viewBox="0 0 14 14" fill="none"><path d="M9.5 2.5l2 2L4.5 11.5l-2.7.7.7-2.7L9.5 2.5z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>
       Rename
     </button>
-    <button class="league-menu-item" onclick="event.stopPropagation();closeLeagueMenus();openDuplicateModal('${league.id}')">
+    ${nominationsOut(league) ? `<button class="league-menu-item" onclick="event.stopPropagation();closeLeagueMenus();openDuplicateModal('${league.id}')">
       <svg width="13" height="13" viewBox="0 0 14 14" fill="none"><rect x="4.5" y="4.5" width="8" height="8" rx="1" stroke="currentColor" stroke-width="1.2"/><path d="M2.5 9.5V2.5a1 1 0 0 1 1-1h7" stroke="currentColor" stroke-width="1.2"/></svg>
       Run it back next season
-    </button>
+    </button>` : `<button class="league-menu-item" disabled title="Opens once this season's Oscar nominations are announced">
+      <svg width="13" height="13" viewBox="0 0 14 14" fill="none" style="align-self:flex-start;margin-top:2px"><rect x="4.5" y="4.5" width="8" height="8" rx="1" stroke="currentColor" stroke-width="1.2"/><path d="M2.5 9.5V2.5a1 1 0 0 1 1-1h7" stroke="currentColor" stroke-width="1.2"/></svg>
+      <span>Run it back next season<span class="league-menu-item-sub">${escHtml(nominationsHint(league))}</span></span>
+    </button>`}
     <div class="league-menu-divider"></div>
     <button class="league-menu-item danger" onclick="event.stopPropagation();closeLeagueMenus();confirmDeleteLeague('${league.id}')">
       <svg width="13" height="13" viewBox="0 0 14 14" fill="none"><path d="M2.5 3.5h9M5.5 3.5V2a1 1 0 0 1 1-1h1a1 1 0 0 1 1 1v1.5M11 3.5l-.6 8.1a1 1 0 0 1-1 .9H4.6a1 1 0 0 1-1-.9L3 3.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -787,7 +801,7 @@ function renderLeagueCard(membership) {
   `;
 
   return `
-    <div class="league-card role-${role}" onclick="location.href='/league?id=${league.id}'">
+    <div class="league-card role-${role}" data-league-id="${league.id}" onclick="location.href='/league?id=${league.id}'">
       ${hasUnread ? `<div class="league-notif-badge" title="Unread notifications in this league"></div>` : ''}
       <div class="league-card-top">
         <div>
@@ -795,6 +809,9 @@ function renderLeagueCard(membership) {
           <div class="league-season">Season ${escHtml(league.season)} · ${escHtml(teamName)}</div>
         </div>
         <div class="league-card-top-right" onclick="event.stopPropagation()">
+          ${reorderable ? `<button class="league-drag" type="button" title="Drag to reorder" aria-label="Reorder ${escHtml(league.name)}: drag, or use the arrow keys">
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true"><circle cx="4" cy="2.5" r="1.1"/><circle cx="8" cy="2.5" r="1.1"/><circle cx="4" cy="6" r="1.1"/><circle cx="8" cy="6" r="1.1"/><circle cx="4" cy="9.5" r="1.1"/><circle cx="8" cy="9.5" r="1.1"/></svg>
+          </button>` : ''}
           <div class="role-badge ${role}">${role}</div>
           <div class="league-menu-wrap">
             <button class="league-menu-btn" title="League settings" onclick="toggleLeagueMenu('${league.id}', event)">
@@ -851,6 +868,191 @@ function syncMenuCards() {
 
 document.addEventListener('click', function(e) {
   if (!e.target.closest('.league-menu-wrap')) closeLeagueMenus();
+});
+
+// ── RUN IT BACK GATE ──────────────────────────────────────────────────────────
+// "Run it back next season" only opens once the league's season has its Oscar
+// nominations: nominees entered in oscar_results, the season's nominations_date
+// has passed, or the league is already finalized.
+let NOMS_SEASONS = new Set();
+async function loadNominationSeasons() {
+  const { ok, data } = await sbFetch('/rest/v1/oscar_results?select=season&limit=5000');
+  if (ok && Array.isArray(data)) NOMS_SEASONS = new Set(data.map(r => String(r.season)));
+}
+function nominationsOut(league) {
+  const s = String(league.season);
+  const date = SEASONS[s] && SEASONS[s].nominations_date;
+  return !!league.finalized_at || NOMS_SEASONS.has(s) || (!!date && date <= new Date().toISOString().slice(0, 10));
+}
+function nominationsHint(league) {
+  const date = SEASONS[String(league.season)] && SEASONS[String(league.season)].nominations_date;
+  if (!date) return 'Opens once the Oscar nominations are out';
+  const d = new Date(date + 'T12:00:00');
+  return `Opens with the Oscar nominations (${d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })})`;
+}
+
+// ── REORDER LEAGUES ───────────────────────────────────────────────────────────
+// Drag a card by its grip (mouse or touch), or focus the grip and use the arrow
+// keys. The order is saved in the user's own login metadata (league_order), so
+// it follows them to other devices; leagues not in the list yet (new joins)
+// come first, newest first.
+function leagueOrder() {
+  const o = currentSession && currentSession.user && currentSession.user.user_metadata && currentSession.user.user_metadata.league_order;
+  return Array.isArray(o) ? o : [];
+}
+function applyLeagueOrder(list) {
+  const ord = leagueOrder();
+  const pos = id => ord.indexOf(id);
+  return list.map((m, i) => ({ m, i })).sort((a, b) => {
+    const pa = pos(a.m.league.id), pb = pos(b.m.league.id);
+    if (pa < 0 && pb < 0) return a.i - b.i;
+    if (pa < 0) return -1;
+    if (pb < 0) return 1;
+    return pa - pb;
+  }).map(x => x.m);
+}
+// Another device may have reordered since this session was cached.
+async function refreshUserMeta() {
+  try {
+    const res = await fetch(`${SUPABASE_URL}/auth/v1/user`, { headers: { 'apikey': SUPABASE_ANON_KEY, 'Authorization': `Bearer ${currentSession.access_token}` } });
+    if (!res.ok) return;
+    const user = await res.json();
+    if (!user || !user.id) return;
+    currentSession.user = { ...currentSession.user, ...user };
+    const s = JSON.parse(localStorage.getItem('sef_session') || '{}');
+    if (s.user) { s.user = { ...s.user, user_metadata: user.user_metadata }; localStorage.setItem('sef_session', JSON.stringify(s)); }
+  } catch (e) {}
+}
+let _orderSaveTimer = null;
+function saveLeagueOrder() {
+  const grid = document.querySelector('.leagues-grid');
+  if (!grid) return;
+  const ids = [...grid.querySelectorAll(':scope > .league-card[data-league-id]')].map(c => c.dataset.leagueId);
+  const prev = leagueOrder();
+  if (ids.length === prev.length && ids.every((id, i) => id === prev[i])) return;
+  const md = { ...(currentSession.user.user_metadata || {}), league_order: ids };
+  currentSession.user.user_metadata = md;
+  try {
+    const s = JSON.parse(localStorage.getItem('sef_session') || '{}');
+    if (s.user) { s.user.user_metadata = md; localStorage.setItem('sef_session', JSON.stringify(s)); }
+  } catch (e) {}
+  clearTimeout(_orderSaveTimer);
+  _orderSaveTimer = setTimeout(async () => {
+    try {
+      const res = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+        method: 'PUT',
+        headers: { 'apikey': SUPABASE_ANON_KEY, 'Authorization': `Bearer ${currentSession.access_token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ data: { league_order: ids } })
+      });
+      if (!res.ok) showToast("Couldn't save your league order");
+    } catch (e) { showToast("Couldn't save your league order"); }
+  }, 400);
+}
+
+const _reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+// Move cards in the DOM, then animate every other card from where it was to its
+// new slot (FLIP), so the grid reflows smoothly instead of jumping.
+function flipReorder(grid, mutate, skip) {
+  const cards = [...grid.querySelectorAll(':scope > .league-card')];
+  const first = new Map(cards.map(c => [c, c.getBoundingClientRect()]));
+  mutate();
+  for (const c of cards) {
+    if (c === skip) continue;
+    c.style.transition = 'none';
+    c.style.transform = '';
+    const a = first.get(c), b = c.getBoundingClientRect();
+    const dx = a.left - b.left, dy = a.top - b.top;
+    if (!dx && !dy) { c.style.transition = ''; continue; }
+    c.style.transform = `translate(${dx}px,${dy}px)`;
+    c.dataset.flip = '1';
+    c.getBoundingClientRect();
+    c.style.transition = _reduceMotion ? 'none' : 'transform .3s cubic-bezier(.2,.8,.2,1)';
+    c.style.transform = '';
+    clearTimeout(c._flipT);
+    c._flipT = setTimeout(() => { c.style.transition = ''; delete c.dataset.flip; }, 320);
+  }
+}
+
+let _drag = null;
+function placeDragged() {
+  const d = _drag, c = d.card;
+  c.style.transition = 'none';
+  c.style.transform = 'none';
+  const r = c.getBoundingClientRect();
+  c.style.transform = `translate(${d.x - d.gx - r.left}px,${d.y - d.gy - r.top}px) scale(1.02)`;
+}
+function dragTick() {
+  if (!_drag) return;
+  // nudge the page when the card is held near the top or bottom edge
+  const edge = 70, vh = window.innerHeight;
+  const v = _drag.y < edge ? -(edge - _drag.y) / 5 : _drag.y > vh - edge ? (_drag.y - (vh - edge)) / 5 : 0;
+  if (v && _drag.moved) { window.scrollBy(0, v); placeDragged(); }
+  _drag.raf = requestAnimationFrame(dragTick);
+}
+document.addEventListener('pointerdown', e => {
+  const h = e.target.closest && e.target.closest('.league-drag');
+  if (!h || e.button > 0) return;
+  const card = h.closest('.league-card');
+  if (!card) return;
+  e.preventDefault();
+  closeLeagueMenus();
+  const r = card.getBoundingClientRect();
+  _drag = { card, grid: card.parentElement, id: e.pointerId, sx: e.clientX, sy: e.clientY, x: e.clientX, y: e.clientY, gx: e.clientX - r.left, gy: e.clientY - r.top, moved: false };
+  card.style.transformOrigin = `${_drag.gx}px ${_drag.gy}px`;
+  try { h.setPointerCapture(e.pointerId); } catch (err) {}
+  _drag.raf = requestAnimationFrame(dragTick);
+});
+document.addEventListener('pointermove', e => {
+  const d = _drag;
+  if (!d || e.pointerId !== d.id) return;
+  d.x = e.clientX; d.y = e.clientY;
+  if (!d.moved) {
+    if (Math.hypot(d.x - d.sx, d.y - d.sy) < 4) return;
+    d.moved = true;
+    d.card.classList.add('dragging');
+    document.body.classList.add('dragging-leagues');
+  }
+  placeDragged();
+  // swap once the pointer is well inside another card (inner 70%), and not
+  // while that card is still sliding, so slots don't flicker back and forth
+  const over = [...d.grid.querySelectorAll(':scope > .league-card')].find(c => {
+    if (c === d.card || c.dataset.flip) return false;
+    const r = c.getBoundingClientRect(), mx = r.width * 0.15, my = r.height * 0.15;
+    return d.x > r.left + mx && d.x < r.right - mx && d.y > r.top + my && d.y < r.bottom - my;
+  });
+  if (over) {
+    const sibs = [...d.grid.children];
+    flipReorder(d.grid, () => { sibs.indexOf(d.card) < sibs.indexOf(over) ? over.after(d.card) : over.before(d.card); }, d.card);
+    placeDragged();
+  }
+});
+function endDrag(e) {
+  const d = _drag;
+  if (!d || e.pointerId !== d.id) return;
+  _drag = null;
+  cancelAnimationFrame(d.raf);
+  document.body.classList.remove('dragging-leagues');
+  const c = d.card;
+  if (!d.moved) { c.style.transformOrigin = ''; return; }
+  c.style.transition = _reduceMotion ? 'none' : 'transform .25s cubic-bezier(.2,.8,.2,1)';
+  c.style.transform = '';
+  setTimeout(() => { c.style.transition = ''; c.style.transformOrigin = ''; c.classList.remove('dragging'); }, 260);
+  saveLeagueOrder();
+}
+document.addEventListener('pointerup', endDrag);
+document.addEventListener('pointercancel', endDrag);
+document.addEventListener('keydown', e => {
+  const h = e.target.closest && e.target.closest('.league-drag');
+  if (!h) return;
+  const card = h.closest('.league-card'), grid = card.parentElement;
+  const sibs = [...grid.querySelectorAll(':scope > .league-card')], i = sibs.indexOf(card);
+  const j = (e.key === 'ArrowLeft' || e.key === 'ArrowUp') ? i - 1 : (e.key === 'ArrowRight' || e.key === 'ArrowDown') ? i + 1 : null;
+  if (j === null) return;
+  e.preventDefault();
+  if (j < 0 || j >= sibs.length) return;
+  flipReorder(grid, () => { j < i ? sibs[j].before(card) : sibs[j].after(card); });
+  h.focus();
+  saveLeagueOrder();
 });
 
 // ── CREATE LEAGUE ─────────────────────────────────────────────────────────────
